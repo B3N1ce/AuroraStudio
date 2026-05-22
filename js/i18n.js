@@ -73,7 +73,13 @@ const translations = {
         bg_upload: "Eigenes Foto...",
         bg_upload_desc: "Bild von deinem Raum laden",
         bg_reset: "Einfarbig (Zurücksetzen)",
-        bg_reset_desc: "Hintergrundbild entfernen"
+        bg_reset_desc: "Hintergrundbild entfernen",
+        new_script_created: "Neues Skript erstellt",
+        no_vars_found: "Keine Variablen definiert",
+        click_to_insert: "Klicken zum Einfügen",
+        copied_to_clipboard: "In Zwischenablage kopiert",
+        color_space: "Farbraum",
+        blend_mode: "Mischmodus"
     },
     en: {
         title: "Aurora Studio",
@@ -147,7 +153,13 @@ const translations = {
         bg_upload: "Custom photo...",
         bg_upload_desc: "Load an image of your room",
         bg_reset: "Solid Color (Reset)",
-        bg_reset_desc: "Remove background image"
+        bg_reset_desc: "Remove background image",
+        new_script_created: "New script created",
+        no_vars_found: "No variables defined",
+        click_to_insert: "Click to insert",
+        copied_to_clipboard: "Copied to clipboard",
+        color_space: "Color Space",
+        blend_mode: "Blend Mode"
     }
 };
 

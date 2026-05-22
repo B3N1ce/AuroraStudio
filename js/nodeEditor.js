@@ -1309,18 +1309,18 @@ export function updateVariablePanel(externalDoc = null) {
     const sortedKeys = Object.keys(vars).sort();
 
     if (sortedKeys.length === 0) {
-        container.innerHTML = `<div style="padding:10px;color:#666;font-size:11px;text-align:center;">${t('no_vars_found') || 'Keine Variablen definiert'}</div>`;
+        container.innerHTML = `<div style="padding:10px;color:#666;font-size:11px;text-align:center;">${t('no_vars_found')}</div>`;
         return;
     }
 
     sortedKeys.forEach(key => {
         const row = el('div', 'entity-item');
         row.style.cursor = 'pointer';
-        row.title = t('click_to_insert') || 'Klicken zum Einfügen';
+        row.title = t('click_to_insert');
 
         const insertBtn = el('button', 'btn-var-insert');
         insertBtn.innerHTML = '←';
-        insertBtn.title = t('click_to_insert') || 'In Editor einfügen';
+        insertBtn.title = t('click_to_insert');
         const info = el('div', 'entity-info');
         info.style.flex = "1";
         info.style.minWidth = "0";
@@ -1437,7 +1437,7 @@ export function insertVariableAtCursor(text) {
     } else {
         // Fallback: Copy to clipboard and show toast
         navigator.clipboard.writeText(text);
-        if (window.showToast) window.showToast(t('copied_to_clipboard') || 'In Zwischenablage kopiert');
+        if (window.showToast) window.showToast(t('copied_to_clipboard'));
     }
 }
 

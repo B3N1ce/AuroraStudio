@@ -2366,19 +2366,70 @@ body.simulation-running .panel-tab.active {
     height: var(--tl-row-h);
     display: flex;
     align-items: center;
-    padding: 0 10px;
+    padding: 0 6px 0 10px;
     font-size: 11px;
     color: #bbb;
     border-bottom: 1px solid #222;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     user-select: none;
+    gap: 4px;
 }
 
 .tl-entity-label:hover {
     background: rgba(255, 255, 255, 0.04);
     color: #eee;
+}
+
+.tl-entity-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tl-entity-actions {
+    display: none;
+    align-items: center;
+    gap: 1px;
+    flex-shrink: 0;
+}
+
+.tl-entity-label:hover .tl-entity-actions {
+    display: flex;
+}
+
+.tl-entity-action-btn {
+    background: none;
+    border: none;
+    color: #777;
+    cursor: pointer;
+    padding: 2px 4px;
+    font-size: 11px;
+    line-height: 1;
+    border-radius: 3px;
+    transition: background 0.1s, color 0.1s;
+}
+
+.tl-entity-action-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #eee;
+}
+
+.tl-entity-action-btn.tl-entity-delete:hover {
+    background: rgba(255, 85, 85, 0.18);
+    color: #ff5555;
+}
+
+.tl-entity-rename-input {
+    width: 100%;
+    background: #1e1e26;
+    border: 1px solid #5a5aaa;
+    color: #eee;
+    font-size: 11px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    outline: none;
+    box-sizing: border-box;
 }
 
 /* ─── Scroll Area ──────────────────────────────────────── */
@@ -2515,6 +2566,20 @@ body.simulation-running .panel-tab.active {
     background: #ff5555;
     clip-path: polygon(50% 100%, 0 0, 100% 0);
     transform: rotate(180deg);
+}
+
+/* ─── Continuation Zone (light holds last state in gaps) ── */
+.tl-continuation-zone {
+    position: absolute;
+    top: 4px;
+    height: 28px;
+    pointer-events: none;
+    box-sizing: border-box;
+    border-left: 2px dashed rgba(255, 255, 255, 0.15);
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 0 3px 3px 0;
 }
 
 /* ─── Insert Ghost ─────────────────────────────────────── */

@@ -513,8 +513,37 @@ function renderTimeline(events, totalMs) {
     entityOrder.forEach(entityId => {
         const label = document.createElement('div');
         label.className = 'tl-entity-label';
-        label.textContent = entityId.replace('light.', '');
         label.title = entityId;
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'tl-entity-name';
+        nameSpan.textContent = entityId.replace('light.', '');
+        label.appendChild(nameSpan);
+
+        const actions = document.createElement('div');
+        actions.className = 'tl-entity-actions';
+
+        const editBtn = document.createElement('button');
+        editBtn.className = 'tl-entity-action-btn';
+        editBtn.textContent = '✎';
+        editBtn.title = 'Rename entity';
+        editBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            startTrackRename(label, nameSpan, entityId);
+        });
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'tl-entity-action-btn tl-entity-delete';
+        delBtn.textContent = '✕';
+        delBtn.title = 'Delete track';
+        delBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteTrack(entityId);
+        });
+
+        actions.appendChild(editBtn);
+        actions.appendChild(delBtn);
+        label.appendChild(actions);
         entityCol.appendChild(label);
     });
     // Add-entity button
@@ -557,6 +586,35 @@ function renderTimeline(events, totalMs) {
             preZone.style.left = '0';
             preZone.style.width = (startMs * _scale) + 'px';
             row.appendChild(preZone);
+        }
+    });
+
+    // ── Continuation zones (light holds last state between blocks) ────────
+    const eventsByEntity = {};
+    events.forEach(ev => {
+        if (!eventsByEntity[ev.entityId]) eventsByEntity[ev.entityId] = [];
+        eventsByEntity[ev.entityId].push(ev);
+    });
+    Object.entries(eventsByEntity).forEach(([entityId, entityEvents]) => {
+        const row = rowMap[entityId];
+        if (!row) return;
+        const sorted = [...entityEvents].sort((a, b) => a.startMs - b.startMs);
+        for (let i = 0; i < sorted.length - 1; i++) {
+            const curr = sorted[i];
+            const next = sorted[i + 1];
+            const gapStartMs = curr.startMs + (curr.holdMs || 0);
+            const gapEndMs   = next.startMs;
+            if (gapEndMs <= gapStartMs) continue;
+            const zone = document.createElement('div');
+            zone.className = 'tl-continuation-zone';
+            zone.style.left  = (gapStartMs * _scale) + 'px';
+            zone.style.width = ((gapEndMs - gapStartMs) * _scale) + 'px';
+            if (curr.color) {
+                const [r, g, b] = curr.color;
+                zone.style.background      = `rgba(${r},${g},${b},0.10)`;
+                zone.style.borderLeftColor = `rgba(${r},${g},${b},0.35)`;
+            }
+            row.appendChild(zone);
         }
     });
 
@@ -827,7 +885,7 @@ function showNewBlockPopover(entityId, startMs, clickX, clickY) {
 
     // Ghost helpers
     const doc = getCurrentDoc();
-    const effectiveStartMs = resolveInsertMs(doc?.sequence || [], startMs);
+    const effectiveStartMs = resolveInsertMs(doc?.sequence || [], startMs, entityId);
 
     const buildGhostEvent = () => {
         const tr   = (parseFloat(trInput.value)   || 0) * 1000;
@@ -935,6 +993,124 @@ function makeNumberInput(value, min, max, step) {
     if (max !== null && max !== undefined) input.max = max;
     input.step = step;
     return input;
+}
+
+// ─── Track Edit / Delete ──────────────────────────────────────────────────────
+
+function deleteTrack(entityId) {
+    const doc = getCurrentDoc();
+    if (!doc || !doc.sequence) return;
+    removeEntityFromSequence(doc.sequence, entityId);
+    _extraEntities = _extraEntities.filter(id => id !== entityId);
+    pushTimelineToYaml();
+}
+
+function removeEntityFromSequence(seq, entityId) {
+    let i = 0;
+    while (i < seq.length) {
+        const step = seq[i];
+        const type = detectStepType(step);
+
+        if (type === 'action') {
+            if (resolveEntityIds(step).includes(entityId)) {
+                const hasDelay = i + 1 < seq.length && detectStepType(seq[i + 1]) === 'delay';
+                seq.splice(i, hasDelay ? 2 : 1);
+                continue;
+            }
+        } else if (type === 'parallel') {
+            // Remove branches entirely owned by this entity, clean others recursively
+            step.parallel = step.parallel.filter(b => {
+                const bSeq = Array.isArray(b) ? b : (b.sequence || []);
+                const actions = bSeq.filter(s => detectStepType(s) === 'action');
+                return !(actions.length > 0 && actions.every(s => resolveEntityIds(s).every(id => id === entityId)));
+            });
+            step.parallel.forEach(b => {
+                const bSeq = Array.isArray(b) ? b : (b.sequence || []);
+                removeEntityFromSequence(bSeq, entityId);
+            });
+            if (step.parallel.length === 0) {
+                seq.splice(i, 1); continue;
+            }
+            if (step.parallel.length === 1) {
+                const only = step.parallel[0];
+                const bSeq = Array.isArray(only) ? only : (only.sequence || []);
+                seq.splice(i, 1, ...bSeq); continue;
+            }
+        } else if (type === 'repeat') {
+            removeEntityFromSequence(step.repeat?.sequence || [], entityId);
+        } else if (type === 'choose') {
+            (step.choose || []).forEach(c => removeEntityFromSequence(c.sequence || [], entityId));
+        } else if (type === 'if') {
+            removeEntityFromSequence(step.then || [], entityId);
+            removeEntityFromSequence(step.else || [], entityId);
+        }
+        i++;
+    }
+}
+
+function startTrackRename(labelEl, nameSpan, entityId) {
+    const actions = labelEl.querySelector('.tl-entity-actions');
+    if (actions) actions.style.display = 'none';
+    nameSpan.style.display = 'none';
+
+    const input = document.createElement('input');
+    input.className = 'tl-entity-rename-input';
+    input.value = entityId;
+    labelEl.appendChild(input);
+    input.focus();
+    input.select();
+
+    const commit = () => {
+        const newId = input.value.trim();
+        input.remove();
+        nameSpan.style.display = '';
+        if (actions) actions.style.display = '';
+        if (newId && newId !== entityId) {
+            renameTrack(entityId, newId);
+        }
+    };
+
+    const cancel = () => {
+        input.remove();
+        nameSpan.style.display = '';
+        if (actions) actions.style.display = '';
+    };
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+        if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+    });
+    input.addEventListener('blur', commit);
+}
+
+function renameTrack(oldId, newId) {
+    const doc = getCurrentDoc();
+    if (!doc || !doc.sequence) return;
+    _extraEntities = _extraEntities.map(id => id === oldId ? newId : id);
+    renameEntityInSequence(doc.sequence, oldId, newId);
+    pushTimelineToYaml();
+}
+
+function renameEntityInSequence(seq, oldId, newId) {
+    seq.forEach(step => {
+        const type = detectStepType(step);
+        if (type === 'action') {
+            if (step.target?.entity_id === oldId) {
+                step.target.entity_id = newId;
+            } else if (Array.isArray(step.target?.entity_id)) {
+                step.target.entity_id = step.target.entity_id.map(id => id === oldId ? newId : id);
+            }
+        } else if (type === 'parallel') {
+            step.parallel.forEach(b => renameEntityInSequence(Array.isArray(b) ? b : (b.sequence || []), oldId, newId));
+        } else if (type === 'repeat') {
+            renameEntityInSequence(step.repeat?.sequence || [], oldId, newId);
+        } else if (type === 'choose') {
+            (step.choose || []).forEach(c => renameEntityInSequence(c.sequence || [], oldId, newId));
+        } else if (type === 'if') {
+            renameEntityInSequence(step.then || [], oldId, newId);
+            renameEntityInSequence(step.else || [], oldId, newId);
+        }
+    });
 }
 
 // ─── Add Entity ───────────────────────────────────────────────────────────────
@@ -1052,7 +1228,7 @@ function createNewBlock(entityId, startMs, color, brightness, transition, holdSe
     const totalDelaySecs = parseFloat((parseFloat(transition || 0) + parseFloat(holdSecs || 0)).toFixed(2));
     if (totalDelaySecs > 0) stepsToInsert.push({ delay: { seconds: totalDelaySecs } });
 
-    insertAtMs(doc.sequence, startMs, stepsToInsert);
+    insertAtMs(doc.sequence, startMs, stepsToInsert, entityId);
     pushTimelineToYaml();
 }
 
@@ -1071,11 +1247,21 @@ function duplicateBlock(sourceEvent, targetEntityId, startMs) {
         stepsToInsert.push({ delay: { seconds: parseFloat((sourceEvent.holdMs / 1000).toFixed(2)) } });
     }
 
-    insertAtMs(doc.sequence, startMs, stepsToInsert);
+    insertAtMs(doc.sequence, startMs, stepsToInsert, targetEntityId);
     pushTimelineToYaml();
 }
 
-function insertAtMs(seq, targetMs, stepsToInsert) {
+// Finds the sequence array (mutable) of the branch in parallelBranches that contains entityId.
+function findEntityBranch(parallelBranches, entityId) {
+    for (const b of parallelBranches) {
+        const bSeq = Array.isArray(b) ? b : (b.sequence || []);
+        const hasEntity = bSeq.some(s => (s.action || s.service) && resolveEntityIds(s).includes(entityId));
+        if (hasEntity) return Array.isArray(b) ? b : b.sequence;
+    }
+    return null;
+}
+
+function insertAtMs(seq, targetMs, stepsToInsert, entityId) {
     let ms = 0;
 
     for (let i = 0; i < seq.length; i++) {
@@ -1083,7 +1269,11 @@ function insertAtMs(seq, targetMs, stepsToInsert) {
 
         if (type === 'parallel') {
             if (ms === targetMs) {
-                // Same start time → add new branch to existing parallel block
+                // Exact start of block: add into existing entity branch or new branch
+                if (entityId) {
+                    const branchSeq = findEntityBranch(seq[i].parallel, entityId);
+                    if (branchSeq) { branchSeq.push(...stepsToInsert); return; }
+                }
                 seq[i].parallel.push({ sequence: [...stepsToInsert] });
                 return;
             }
@@ -1091,7 +1281,27 @@ function insertAtMs(seq, targetMs, stepsToInsert) {
                 seq.splice(i, 0, ...stepsToInsert);
                 return;
             }
-            ms += parallelDurationMs(seq[i]);
+            const dur = parallelDurationMs(seq[i]);
+            if (targetMs < ms + dur) {
+                // Click falls WITHIN this parallel block's timespan.
+                // Insert into the entity's own branch (appended after its last event).
+                if (entityId) {
+                    const branchSeq = findEntityBranch(seq[i].parallel, entityId);
+                    if (branchSeq) {
+                        branchSeq.push(...stepsToInsert);
+                    } else {
+                        // Entity not yet in this block — add new branch with leading delay
+                        const preMs = targetMs - ms;
+                        const newBranch = preMs > 0
+                            ? [{ delay: { seconds: parseFloat((preMs / 1000).toFixed(3)) } }, ...stepsToInsert]
+                            : [...stepsToInsert];
+                        seq[i].parallel.push({ sequence: newBranch });
+                    }
+                    return;
+                }
+                // No entityId provided — fall through to append after block
+            }
+            ms += dur;
 
         } else if (type === 'action') {
             if (ms === targetMs) {
@@ -1109,10 +1319,23 @@ function insertAtMs(seq, targetMs, stepsToInsert) {
                 seq.splice(i, 0, ...stepsToInsert);
                 return;
             }
+            const actionStartMs = ms; // ms value at start of this delay step
             ms += delayMs;
             if (ms > targetMs) {
-                // Target falls inside this delay → treat as same time as next element
-                seq.splice(i + 1, 0, ...stepsToInsert);
+                // Target falls inside this delay.
+                // If the previous step is an action (i.e. this is its hold delay),
+                // wrap [action, delay] in a parallel block so the new block runs concurrently.
+                if (i > 0 && detectStepType(seq[i - 1]) === 'action') {
+                    const preMs = targetMs - actionStartMs;
+                    const existingSeq = [seq[i - 1], seq[i]];
+                    const newBranchSeq = preMs > 0
+                        ? [{ delay: { seconds: parseFloat((preMs / 1000).toFixed(3)) } }, ...stepsToInsert]
+                        : [...stepsToInsert];
+                    seq.splice(i - 1, 2, { parallel: [{ sequence: existingSeq }, { sequence: newBranchSeq }] });
+                } else {
+                    // Gap delay (no preceding action) → insert after it
+                    seq.splice(i + 1, 0, ...stepsToInsert);
+                }
                 return;
             }
         }
@@ -1122,22 +1345,40 @@ function insertAtMs(seq, targetMs, stepsToInsert) {
     seq.push(...stepsToInsert);
 }
 
-// Returns the ms position where insertAtMs(seq, targetMs, ...) would actually place the block.
+// Returns the ms position where a block for entityId would actually land after insertion.
 // Mirrors insertAtMs logic without modifying the sequence.
-function resolveInsertMs(seq, targetMs) {
+function resolveInsertMs(seq, targetMs, entityId) {
     let ms = 0;
     for (let i = 0; i < seq.length; i++) {
         const type = detectStepType(seq[i]);
         if (type === 'parallel') {
             if (ms >= targetMs) return ms;
-            ms += parallelDurationMs(seq[i]);
+            const dur = parallelDurationMs(seq[i]);
+            if (entityId && targetMs < ms + dur) {
+                // Find where the entity's branch ends within this block
+                const branchSeq = findEntityBranch(seq[i].parallel, entityId);
+                if (branchSeq) {
+                    let branchMs = ms;
+                    for (const s of branchSeq) {
+                        if (detectStepType(s) === 'delay') branchMs += parseDelayMs(s.delay);
+                    }
+                    return branchMs;
+                }
+                return targetMs; // entity not in block → would start at click time
+            }
+            ms += dur;
         } else if (type === 'action') {
             if (ms === targetMs) return ms;
         } else if (type === 'delay') {
             const delayMs = parseDelayMs(seq[i].delay);
             if (ms >= targetMs) return ms;
+            const prevIsAction = i > 0 && detectStepType(seq[i - 1]) === 'action';
             ms += delayMs;
-            if (ms > targetMs) return ms;
+            if (ms > targetMs) {
+                // Hold delay → new block starts at click position (parallel);
+                // Gap delay → block goes after the delay.
+                return prevIsAction ? targetMs : ms;
+            }
         }
     }
     return ms; // append at end
@@ -1257,18 +1498,9 @@ function buildSequenceFromEvents(events) {
                     branchMs = ev.startMs + (ev.holdMs || 0);
                 });
 
-                // Pad branch so all branches have the same total duration.
-                // Extend the last delay if possible to avoid redundant steps.
-                if (branchMs < chunkEnd) {
-                    const padSecs = parseFloat(((chunkEnd - branchMs) / 1000).toFixed(3));
-                    const last = branch[branch.length - 1];
-                    if (last && detectStepType(last) === 'delay') {
-                        const existing = parseDelayMs(last.delay) / 1000;
-                        last.delay = { seconds: parseFloat((existing + padSecs).toFixed(3)) };
-                    } else {
-                        branch.push({ delay: { seconds: padSecs } });
-                    }
-                }
+                // No padding needed: HA's parallel block ends when the LONGEST branch
+                // finishes. Shorter branches complete early and the light holds its last
+                // state automatically. Padding would corrupt the holdMs of the last block.
 
                 return { sequence: branch };
             });

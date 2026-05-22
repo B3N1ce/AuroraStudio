@@ -367,6 +367,60 @@ function initSimPanZoom() {
         room.classList.remove('panning');
     });
 
+    // Touch: 1-finger pan + 2-finger pinch-zoom
+    let _td = 0, _tmx = 0, _tmy = 0;
+    let _stActive = false, _stLastX = 0, _stLastY = 0;
+    room.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+            _stActive = true;
+            _stLastX = e.touches[0].clientX;
+            _stLastY = e.touches[0].clientY;
+            room.classList.add('panning');
+        } else if (e.touches.length === 2) {
+            _stActive = false;
+            e.preventDefault();
+            const rect = room.getBoundingClientRect();
+            const [t0, t1] = e.touches;
+            _td  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+            _tmx = (t0.clientX + t1.clientX) / 2 - rect.left;
+            _tmy = (t0.clientY + t1.clientY) / 2 - rect.top;
+        }
+    }, { passive: false });
+    room.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        if (e.touches.length === 1 && _stActive) {
+            const dx = e.touches[0].clientX - _stLastX;
+            const dy = e.touches[0].clientY - _stLastY;
+            simPanX += dx;
+            simPanY += dy;
+            _stLastX = e.touches[0].clientX;
+            _stLastY = e.touches[0].clientY;
+            applySimTransform();
+        } else if (e.touches.length === 2) {
+            simZoomUserSet = true;
+            const rect = room.getBoundingClientRect();
+            const [t0, t1] = e.touches;
+            const nd  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+            const nmx = (t0.clientX + t1.clientX) / 2 - rect.left;
+            const nmy = (t0.clientY + t1.clientY) / 2 - rect.top;
+            const factor = nd / _td;
+            const cx = (_tmx - simPanX) / simZoom;
+            const cy = (_tmy - simPanY) / simZoom;
+            simZoom = Math.min(SIM_ZOOM_MAX, Math.max(SIM_ZOOM_MIN, simZoom * factor));
+            simPanX = _tmx - cx * simZoom + (nmx - _tmx);
+            simPanY = _tmy - cy * simZoom + (nmy - _tmy);
+            _td = nd; _tmx = nmx; _tmy = nmy;
+            applySimTransform();
+        }
+    }, { passive: false });
+    room.addEventListener('touchend', (e) => {
+        _td = 0;
+        if (e.touches.length === 0) {
+            _stActive = false;
+            room.classList.remove('panning');
+        }
+    });
+
     document.getElementById('sim-zoom-in')?.addEventListener('click', () => {
         simZoomUserSet = true;
         simZoom = Math.min(SIM_ZOOM_MAX, simZoom + 0.1);
@@ -391,7 +445,12 @@ function initSimPanZoom() {
         resetSimView();
     });
 
-    requestAnimationFrame(resetSimView);
+    // Use ResizeObserver so resetSimView fires when the panel first becomes visible
+    // (requestAnimationFrame fires too early if the simulation tab is not active on load)
+    const _ro = new ResizeObserver(() => {
+        if (room.offsetWidth > 0 && room.offsetHeight > 0) resetSimView();
+    });
+    _ro.observe(room);
 }
 
 function applySimTransform() {
@@ -407,6 +466,7 @@ export function resetSimView() {
     if (!room) return;
     const rw = room.offsetWidth;
     const rh = room.offsetHeight;
+    if (rw === 0 || rh === 0) return;
     if (!simZoomUserSet) {
         // Fill the full panel — scale to the larger axis so no space is wasted.
         // The smaller axis may overflow slightly but is reachable via pan.
@@ -519,14 +579,26 @@ function drawLoop(now) {
 
             // Label
             if (labelsVisible) {
-                ctx.fillStyle = '#888';
+                const labelText = lamp.id.replace('light.', '');
                 ctx.font = 'bold 10px Inter, sans-serif';
                 ctx.textAlign = 'center';
-                ctx.fillText(lamp.id.replace('light.', ''), lamp.x, lamp.y + 40);
+                ctx.lineJoin = 'round';
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+                ctx.strokeText(labelText, lamp.x, lamp.y + 40);
+                ctx.fillStyle = '#e8e8e8';
+                ctx.fillText(labelText, lamp.x, lamp.y + 40);
             }
 
             // Group Icon
             if (groups[lamp.id]) {
+                ctx.font = 'bold 10px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.lineJoin = 'round';
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+                ctx.strokeText('📁', lamp.x + 20, lamp.y - 20);
+                ctx.fillStyle = '#e8e8e8';
                 ctx.fillText('📁', lamp.x + 20, lamp.y - 20);
             }
 

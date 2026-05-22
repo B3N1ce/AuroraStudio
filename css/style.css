@@ -408,6 +408,7 @@ button {
     background: #141418;
     cursor: default;
     user-select: none;
+    touch-action: none;
 }
 #node-container.panning { cursor: grabbing; }
 
@@ -965,6 +966,7 @@ button {
     overflow: hidden;
     cursor: default;
     user-select: none;
+    touch-action: none;
 }
 #room.panning { cursor: grabbing; }
 

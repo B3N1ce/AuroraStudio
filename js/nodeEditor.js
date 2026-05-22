@@ -98,6 +98,36 @@ function initPanZoom() {
         container.classList.remove('panning');
     });
 
+    // Touch: 2-finger pinch-zoom + pan
+    let _td = 0, _tmx = 0, _tmy = 0;
+    container.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 2) return;
+        e.preventDefault();
+        const rect = container.getBoundingClientRect();
+        const [t0, t1] = e.touches;
+        _td  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+        _tmx = (t0.clientX + t1.clientX) / 2 - rect.left;
+        _tmy = (t0.clientY + t1.clientY) / 2 - rect.top;
+    }, { passive: false });
+    container.addEventListener('touchmove', (e) => {
+        if (e.touches.length !== 2) return;
+        e.preventDefault();
+        const rect = container.getBoundingClientRect();
+        const [t0, t1] = e.touches;
+        const nd  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+        const nmx = (t0.clientX + t1.clientX) / 2 - rect.left;
+        const nmy = (t0.clientY + t1.clientY) / 2 - rect.top;
+        const factor = nd / _td;
+        const cx = (_tmx - panX) / zoom;
+        const cy = (_tmy - panY) / zoom;
+        zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom * factor));
+        panX = _tmx - cx * zoom + (nmx - _tmx);
+        panY = _tmy - cy * zoom + (nmy - _tmy);
+        _td = nd; _tmx = nmx; _tmy = nmy;
+        applyTransform();
+    }, { passive: false });
+    container.addEventListener('touchend', () => { _td = 0; });
+
     // Double-click on empty area → reset view
     container.addEventListener('dblclick', (e) => {
         if (e.target === container || e.target.id === 'node-canvas') resetView();

@@ -79,7 +79,17 @@ const translations = {
         click_to_insert: "Klicken zum Einfügen",
         copied_to_clipboard: "In Zwischenablage kopiert",
         color_space: "Farbraum",
-        blend_mode: "Mischmodus"
+        blend_mode: "Mischmodus",
+        tab_timeline: "Timeline",
+        tl_no_entities: "Keine Entitäten im Skript gefunden.",
+        tl_delete_step: "Schritt löschen",
+        tl_brightness: "Helligkeit %",
+        tl_transition: "Übergang (s)",
+        tl_hold: "Halten (s)",
+        tl_add_entity: "Entität hinzufügen",
+        tl_entity_placeholder: "light.name",
+        tl_create_block: "Block erstellen",
+        tl_color: "Farbe"
     },
     en: {
         title: "Aurora Studio",
@@ -159,7 +169,17 @@ const translations = {
         click_to_insert: "Click to insert",
         copied_to_clipboard: "Copied to clipboard",
         color_space: "Color Space",
-        blend_mode: "Blend Mode"
+        blend_mode: "Blend Mode",
+        tab_timeline: "Timeline",
+        tl_no_entities: "No entities found in script.",
+        tl_delete_step: "Delete step",
+        tl_brightness: "Brightness %",
+        tl_transition: "Transition (s)",
+        tl_hold: "Hold (s)",
+        tl_add_entity: "Add entity",
+        tl_entity_placeholder: "light.name",
+        tl_create_block: "Create block",
+        tl_color: "Color"
     }
 };
 

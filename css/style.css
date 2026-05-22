@@ -2199,3 +2199,635 @@ body.simulation-running .panel-tab.active {
     border-color: #666;
     background: rgba(255, 255, 255, 0.08);
 }
+
+/* ═══════════════════════════════════════════════════════════
+   TIMELINE EDITOR
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+    --tl-col-w: 150px;
+    --tl-row-h: 36px;
+    --tl-ruler-h: 28px;
+    --tl-bracket-h: 18px;
+}
+
+#view-timeline {
+    overflow: hidden;
+    padding: 0;
+}
+
+#tl-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    background: #141418;
+    font-size: 11px;
+    color: #ccc;
+}
+
+/* ─── Header Row (Corner + Ruler) ─────────────────────── */
+#tl-header-row {
+    display: flex;
+    height: var(--tl-ruler-h);
+    flex-shrink: 0;
+    border-bottom: 1px solid #2a2a30;
+}
+
+#tl-corner {
+    width: var(--tl-col-w);
+    flex-shrink: 0;
+    border-right: 1px solid #2a2a30;
+    background: #1a1a1e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ─── Zoom Controls ────────────────────────────────────── */
+#tl-zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.tl-zoom-btn {
+    width: 20px;
+    height: 20px;
+    background: #252530;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #aaa;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.tl-zoom-btn:hover {
+    background: #2e2e3e;
+    border-color: #6272a4;
+    color: #eee;
+}
+
+.tl-zoom-btn:active {
+    background: #3a3a50;
+}
+
+#tl-zoom-label {
+    font-size: 9px;
+    color: #666;
+    min-width: 38px;
+    text-align: center;
+    user-select: none;
+    white-space: nowrap;
+}
+
+#tl-ruler-scroll {
+    flex: 1;
+    overflow: hidden;
+    background: #1a1a1e;
+}
+
+#tl-ruler {
+    position: relative;
+    height: var(--tl-ruler-h);
+    min-width: 100%;
+}
+
+.tl-tick {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.tl-tick::before {
+    content: '';
+    display: block;
+    width: 1px;
+    height: 8px;
+    background: #444;
+    margin-top: 4px;
+}
+
+.tl-tick-label {
+    font-size: 9px;
+    color: #666;
+    margin-left: 3px;
+    margin-top: 2px;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.tl-tick.medium::before {
+    background: #5a5a68;
+    height: 13px;
+    margin-top: 1px;
+    width: 1px;
+}
+
+.tl-tick.major::before {
+    background: #555;
+    height: 12px;
+    margin-top: 0;
+}
+
+.tl-tick.major .tl-tick-label {
+    color: #888;
+    font-size: 10px;
+    margin-top: 0;
+}
+
+/* ─── Body (Entity Col + Scroll Area) ─────────────────── */
+#tl-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+#tl-entity-col {
+    width: var(--tl-col-w);
+    flex-shrink: 0;
+    overflow: hidden;
+    border-right: 1px solid #2a2a30;
+    background: #1a1a1e;
+}
+
+.tl-entity-label {
+    height: var(--tl-row-h);
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    font-size: 11px;
+    color: #bbb;
+    border-bottom: 1px solid #222;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: none;
+}
+
+.tl-entity-label:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: #eee;
+}
+
+/* ─── Scroll Area ──────────────────────────────────────── */
+#tl-scroll-area {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: scroll; /* must stay scroll so scrollLeft is settable */
+    position: relative;
+    background: #141418;
+    scrollbar-width: none; /* Firefox: hide native scrollbar (custom row used) */
+}
+
+/* Rows alternate slightly for readability */
+.tl-row {
+    height: var(--tl-row-h);
+    position: relative;
+    border-bottom: 1px solid #1e1e24;
+}
+
+.tl-row:nth-child(odd) {
+    background: rgba(255, 255, 255, 0.01);
+}
+
+/* ─── Blocks ───────────────────────────────────────────── */
+.tl-block {
+    position: absolute;
+    top: 4px;
+    height: 28px;
+    border-radius: 4px;
+    cursor: pointer;
+    overflow: hidden;
+    box-sizing: border-box;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    transition: border-color 0.1s, box-shadow 0.1s;
+    min-width: 4px;
+}
+
+.tl-block:hover {
+    border-color: rgba(255, 255, 255, 0.45);
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.5);
+    z-index: 2;
+}
+
+.tl-block.selected {
+    border-color: #bd93f9;
+    box-shadow: 0 0 8px rgba(189, 147, 249, 0.4);
+    z-index: 3;
+}
+
+.tl-block-inner {
+    padding: 0 6px 0 5px;
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 26px;
+    pointer-events: none;
+    user-select: none;
+}
+
+.tl-block-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 8px;
+    height: 100%;
+    cursor: ew-resize;
+    background: rgba(255, 255, 255, 0.08);
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.tl-block:hover .tl-block-handle {
+    opacity: 1;
+}
+
+.tl-block-badge {
+    position: absolute;
+    top: 2px;
+    right: 10px;
+    font-size: 9px;
+    font-weight: 700;
+    background: rgba(0, 0, 0, 0.45);
+    border-radius: 3px;
+    padding: 0 3px;
+    pointer-events: none;
+    line-height: 14px;
+    user-select: none;
+}
+
+/* ─── Repeat Bracket ───────────────────────────────────── */
+.tl-repeat-bracket {
+    position: absolute;
+    border: 1px dashed rgba(139, 233, 253, 0.35);
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 1;
+    box-sizing: border-box;
+}
+
+.tl-repeat-label {
+    position: absolute;
+    top: -14px;
+    left: 4px;
+    font-size: 9px;
+    font-weight: 700;
+    color: rgba(139, 233, 253, 0.7);
+    background: #141418;
+    padding: 0 3px;
+    border-radius: 2px;
+    white-space: nowrap;
+    user-select: none;
+}
+
+/* ─── Playback Cursor ──────────────────────────────────── */
+#tl-cursor {
+    position: absolute;
+    top: 0;
+    width: 2px;
+    background: #ff5555;
+    pointer-events: none;
+    display: none;
+    z-index: 10;
+}
+
+#tl-cursor::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -4px;
+    width: 10px;
+    height: 10px;
+    background: #ff5555;
+    clip-path: polygon(50% 100%, 0 0, 100% 0);
+    transform: rotate(180deg);
+}
+
+/* ─── Insert Ghost ─────────────────────────────────────── */
+#tl-insert-ghost {
+    position: absolute;
+    top: 0;
+    width: 1px;
+    background: rgba(189, 147, 249, 0.45);
+    pointer-events: none;
+    display: none;
+    z-index: 9;
+    transform: translateX(-50%);
+}
+
+#tl-insert-ghost::after {
+    content: attr(data-time);
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    font-size: 9px;
+    font-weight: 600;
+    color: rgba(189, 147, 249, 0.95);
+    white-space: nowrap;
+    background: rgba(16, 16, 22, 0.88);
+    padding: 1px 4px;
+    border-radius: 2px;
+    border: 1px solid rgba(189, 147, 249, 0.25);
+}
+
+/* ─── Block Ghost (create preview) ─────────────────────── */
+.tl-block-ghost {
+    opacity: 0.45;
+    pointer-events: none !important;
+    border-style: dashed !important;
+    border-color: rgba(255, 255, 255, 0.5) !important;
+    cursor: default !important;
+}
+
+/* ─── Empty State ──────────────────────────────────────── */
+#tl-empty-state {
+    display: none;
+    position: absolute;
+    inset: 0;
+    align-items: center;
+    justify-content: center;
+    color: #555;
+    font-size: 12px;
+    pointer-events: none;
+}
+
+/* ─── Block Popover ────────────────────────────────────── */
+.tl-popover {
+    position: fixed;
+    background: #1e1e24;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 10px;
+    z-index: 2000;
+    min-width: 180px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    font-size: 12px;
+    color: #ccc;
+}
+
+.tl-popover-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.tl-popover-row:last-child {
+    margin-bottom: 0;
+}
+
+.tl-popover-label {
+    font-size: 10px;
+    color: #888;
+    flex-shrink: 0;
+    width: 80px;
+}
+
+.tl-popover-color {
+    width: 36px;
+    height: 24px;
+    border: 1px solid #444;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 1px;
+    background: transparent;
+}
+
+.tl-popover input[type="number"] {
+    background: #2a2a32;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #eee;
+    padding: 3px 6px;
+    font-size: 11px;
+    width: 70px;
+    outline: none;
+}
+
+.tl-popover input[type="number"]:focus {
+    border-color: #6272a4;
+}
+
+.tl-popover-delete {
+    width: 100%;
+    padding: 5px 0;
+    background: rgba(255, 85, 85, 0.12);
+    border: 1px solid rgba(255, 85, 85, 0.3);
+    border-radius: 4px;
+    color: #ff7070;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s;
+    margin-top: 4px;
+}
+
+.tl-popover-delete:hover {
+    background: rgba(255, 85, 85, 0.25);
+}
+
+/* ─── Vertical Scrollbar (scroll area) ────────────────── */
+#tl-scroll-area::-webkit-scrollbar {
+    width: 6px;
+    height: 0px; /* horizontal handled by dedicated row */
+}
+
+#tl-scroll-area::-webkit-scrollbar-track {
+    background: #141418;
+}
+
+#tl-scroll-area::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 3px;
+}
+
+#tl-scroll-area::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* ─── Dedicated Horizontal Scrollbar Row ──────────────── */
+#tl-hscroll-row {
+    display: flex;
+    flex-shrink: 0;
+    height: 12px;
+    border-top: 1px solid #222;
+    background: #141418;
+}
+
+#tl-hscroll-corner {
+    width: var(--tl-col-w);
+    flex-shrink: 0;
+    border-right: 1px solid #2a2a30;
+    background: #1a1a1e;
+}
+
+#tl-hscroll {
+    flex: 1;
+    overflow-x: scroll;
+    overflow-y: hidden;
+}
+
+/* single pixel dummy — its width drives the scroll range */
+#tl-hscroll-inner {
+    height: 1px;
+}
+
+#tl-hscroll::-webkit-scrollbar {
+    height: 10px;
+}
+
+#tl-hscroll::-webkit-scrollbar-track {
+    background: #1a1a1e;
+}
+
+#tl-hscroll::-webkit-scrollbar-thumb {
+    background: #3a3a48;
+    border-radius: 5px;
+    border: 2px solid #1a1a1e;
+}
+
+#tl-hscroll::-webkit-scrollbar-thumb:hover {
+    background: #5a5a72;
+}
+
+/* Firefox */
+#tl-hscroll {
+    scrollbar-width: thin;
+    scrollbar-color: #3a3a48 #1a1a1e;
+}
+
+/* ─── Block: Ramp Zone (transition area) ───────────────── */
+.tl-block-ramp {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    pointer-events: none;
+    overflow: hidden;
+    min-width: 0;
+}
+
+/* ─── Block: Hold Zone (solid color) ───────────────────── */
+.tl-block-hold {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+}
+
+/* ─── Block: Left Handle (transition resize) ────────────── */
+.tl-block-handle-left {
+    position: absolute;
+    top: 0;
+    width: 6px;
+    height: 100%;
+    cursor: ew-resize;
+    background: rgba(255, 255, 255, 0.0);
+    opacity: 0;
+    transition: opacity 0.12s;
+    z-index: 3;
+}
+
+/* Visible grip line on hover */
+.tl-block-handle-left::after {
+    content: '';
+    position: absolute;
+    top: 15%;
+    bottom: 15%;
+    left: 2px;
+    width: 2px;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.75);
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+}
+
+.tl-block:hover .tl-block-handle-left {
+    opacity: 1;
+}
+
+/* ─── Pre-Zone (initial delay visualisation) ────────────── */
+.tl-pre-zone {
+    position: absolute;
+    top: 4px;
+    height: 28px;
+    background: repeating-linear-gradient(
+        -45deg,
+        rgba(255, 255, 255, 0.035) 0 3px,
+        transparent 3px 6px
+    );
+    border-radius: 4px 0 0 4px;
+    pointer-events: none;
+    box-sizing: border-box;
+}
+
+/* ─── Add Entity Button ─────────────────────────────────── */
+.tl-add-entity-btn {
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    color: #444;
+    margin: 6px 8px 4px;
+    border: 1px dashed #2e2e36;
+    border-radius: 4px;
+    transition: color 0.15s, border-color 0.15s;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.tl-add-entity-btn:hover {
+    color: #bd93f9;
+    border-color: #bd93f9;
+}
+
+/* ─── Add Entity Input ──────────────────────────────────── */
+.tl-add-entity-input {
+    width: calc(100% - 16px);
+    margin: 6px 8px 4px;
+    background: #2a2a32;
+    border: 1px solid #6272a4;
+    border-radius: 4px;
+    color: #eee;
+    padding: 3px 6px;
+    font-size: 11px;
+    outline: none;
+    box-sizing: border-box;
+    display: block;
+}
+
+/* ─── Create Block Button (new block popover) ───────────── */
+.tl-popover-create {
+    width: 100%;
+    padding: 5px 0;
+    margin-top: 6px;
+    background: rgba(80, 200, 120, 0.14);
+    border: 1px solid rgba(80, 200, 120, 0.35);
+    border-radius: 4px;
+    color: #80d4a0;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.tl-popover-create:hover {
+    background: rgba(80, 200, 120, 0.28);
+}

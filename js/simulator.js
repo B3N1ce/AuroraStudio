@@ -7,6 +7,11 @@ let isPaused = false;
 let varUpdateCallback = null;
 export const breakpoints = new Set();
 
+let _simRunning = false;
+let _simStartWall = 0;
+let _simPausedAccum = 0;
+let _simPauseStart = 0;
+
 export function toggleBreakpoint(path) {
     if (breakpoints.has(path)) breakpoints.delete(path);
     else breakpoints.add(path);
@@ -19,20 +24,38 @@ export function setVarUpdateCallback(cb) {
 export function stopSimulation() {
     playSessionId++;
     isPaused = false;
+    _simRunning = false;
 }
 
 export function pauseSimulation() {
     isPaused = true;
+    _simPauseStart = performance.now();
     snapLampsToTarget();
 }
 
 export function resumeSimulation() {
+    if (_simPauseStart > 0) {
+        _simPausedAccum += performance.now() - _simPauseStart;
+        _simPauseStart = 0;
+    }
     isPaused = false;
 }
+
+export function getSimElapsedMs() {
+    if (!_simRunning) return 0;
+    const paused = _simPausedAccum + (isPaused && _simPauseStart > 0 ? performance.now() - _simPauseStart : 0);
+    return Math.max(0, performance.now() - _simStartWall - paused);
+}
+
+export function isSimRunning() { return _simRunning; }
 
 export function startSimulation(doc, onComplete, onError) {
     playSessionId++;
     isPaused = false;
+    _simRunning = true;
+    _simStartWall = performance.now();
+    _simPausedAccum = 0;
+    _simPauseStart = 0;
     const sid = playSessionId;
 
     const steps = doc.sequence || (Array.isArray(doc) ? doc : [doc]);
@@ -48,10 +71,10 @@ export function startSimulation(doc, onComplete, onError) {
 
     executeSteps(steps, sid, vars)
         .then(() => {
-            if (sid === playSessionId && onComplete) onComplete();
+            if (sid === playSessionId) { _simRunning = false; if (onComplete) onComplete(); }
         })
         .catch(err => {
-            if (sid === playSessionId && onError) onError(err);
+            if (sid === playSessionId) { _simRunning = false; if (onError) onError(err); }
         });
 }
 

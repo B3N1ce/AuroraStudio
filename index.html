@@ -75,6 +75,7 @@
                 <div class="panel-tabs">
                     <div class="panel-tab active" data-tab="yaml" data-i18n="yaml_script">YAML Skript</div>
                     <div class="panel-tab" data-tab="nodes" data-i18n="node_editor">Nodes</div>
+                    <div class="panel-tab" data-tab="timeline" data-i18n="tab_timeline">Timeline</div>
                 </div>
                 <div class="editor-actions">
                     <div class="dropdown-container">
@@ -126,6 +127,29 @@
                             <span id="node-zoom-label" title="Reset view">100%</span>
                             <button id="node-zoom-in" title="Zoom in">+</button>
                         </div>
+                    </div>
+                </div>
+                <div id="view-timeline" class="editor-view">
+                    <div id="tl-container">
+                        <div id="tl-header-row">
+                            <div id="tl-corner">
+                                <div id="tl-zoom-controls">
+                                    <button class="tl-zoom-btn" id="tl-zoom-out" title="Zoom out (Ctrl+Scroll)">−</button>
+                                    <span id="tl-zoom-label">—</span>
+                                    <button class="tl-zoom-btn" id="tl-zoom-in" title="Zoom in (Ctrl+Scroll)">+</button>
+                                </div>
+                            </div>
+                            <div id="tl-ruler-scroll"><div id="tl-ruler"></div></div>
+                        </div>
+                        <div id="tl-body">
+                            <div id="tl-entity-col"></div>
+                            <div id="tl-scroll-area"></div>
+                        </div>
+                        <div id="tl-hscroll-row">
+                            <div id="tl-hscroll-corner"></div>
+                            <div id="tl-hscroll"><div id="tl-hscroll-inner"></div></div>
+                        </div>
+                        <div id="tl-empty-state" data-i18n="tl_no_entities">Keine Entitäten im Skript gefunden.</div>
                     </div>
                 </div>
             </div>

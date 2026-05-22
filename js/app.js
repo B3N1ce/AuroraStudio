@@ -2,7 +2,8 @@
 
 import { initEntityManager, updateLampEntities, resetLamps, hasModifiedLamps, setColorCurve, resizeCanvas, resetSimView, toggleLabels, setBackgroundImage, toggleEntities, getEntitiesVisible, getLabelsVisible, setLightInfluence, getLightInfluence, setBlendMode, getBlendMode, setAmbientLevel, getAmbientLevel, setExposure, getExposure, hasBackgroundImage, setOnBackgroundChange, getDebugStats } from './entityManager.js';
 import { ColorPicker } from './colorPicker.js';
-import { startSimulation, stopSimulation, pauseSimulation, resumeSimulation, setVarUpdateCallback, toggleBreakpoint, breakpoints } from './simulator.js';
+import { startSimulation, stopSimulation, pauseSimulation, resumeSimulation, setVarUpdateCallback, toggleBreakpoint, breakpoints, getSimElapsedMs, isSimRunning } from './simulator.js';
+import { initTimelineEditor, syncYamlToTimeline, startTimelineCursor, resetTimelineState } from './timelineEditor.js';
 import { t, setLang, getLang, applyTranslations } from './i18n.js';
 import { initNodeEditor, syncYamlToNodes, updateVariablePanel, updateRuntimeVariablesUI, resetRuntimeVariablesUI, getCurrentRuntimeVars, getCurrentDoc, assignPaths, setCurrentDoc, highlightExecutingNode } from './nodeEditor.js';
 import { resolveTemplate } from './templateEngine.js';
@@ -181,6 +182,9 @@ function init() {
     // 3. Init Node Editor
     initNodeEditor(editor);
 
+    // 3b. Init Timeline Editor
+    initTimelineEditor(editor);
+
     // 4. Set Runtime Variable Callback
     setVarUpdateCallback(updateRuntimeVariablesUI);
 
@@ -293,6 +297,9 @@ function init() {
                 refreshBreakpointMarkers();
             } else if (tab.dataset.tab === 'nodes') {
                 syncYamlToNodes();
+            } else if (tab.dataset.tab === 'timeline') {
+                const _tlDoc = getCurrentDoc();
+                if (_tlDoc) syncYamlToTimeline(_tlDoc);
             }
         });
     });
@@ -460,6 +467,8 @@ function init() {
                     if (typeof validateAndSync === 'function') validateAndSync();
                     const activeTab = document.querySelector('#panel-editor .panel-tab.active');
                     if (activeTab && activeTab.dataset.tab === 'nodes') syncYamlToNodes();
+                    resetTimelineState();
+                    if (activeTab && activeTab.dataset.tab === 'timeline') { const _d = getCurrentDoc(); if (_d) syncYamlToTimeline(_d); }
 
                     showToast(t('new_script_created') || "Neues Skript erstellt", "success");
                 }
@@ -533,6 +542,10 @@ function init() {
 
         resetRuntimeVariablesUI();
         setUIRunning(true, false);
+
+        // Start timeline cursor if timeline tab is active
+        const _atSim = document.querySelector('#panel-editor .panel-tab.active');
+        if (_atSim && _atSim.dataset.tab === 'timeline') startTimelineCursor();
 
         startSimulation(doc, () => {
             setUIRunning(false, false);
@@ -922,6 +935,10 @@ function validateAndSync() {
         const doc = jsyaml.load(code);
         if (doc) setCurrentDoc(doc);
         updateLampEntities(doc || {}, room);
+
+        // Sync Timeline if active
+        const _atSync = document.querySelector('#panel-editor .panel-tab.active');
+        if (_atSync && _atSync.dataset.tab === 'timeline' && doc) syncYamlToTimeline(doc);
 
         // Update Global Variable Panel with full discovery
         updateVariablePanel(doc);

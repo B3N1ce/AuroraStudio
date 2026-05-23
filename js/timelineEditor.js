@@ -13,6 +13,7 @@ let _rafId = null;
 let _scrollSyncHandler = null;
 let _extraEntities = [];
 let _lastColorByEntity = {};
+let _blockDragFired = false; // suppresses click-popover after a body drag
 
 const ROW_H = 36;
 
@@ -127,6 +128,7 @@ function setupDelegatedListeners() {
         const block = e.target.closest('.tl-block');
 
         if (block && !isHandle) {
+            if (_blockDragFired) { _blockDragFired = false; return; }
             closePopover();
             showBlockPopover(block, block._tlEvent);
             return;
@@ -166,9 +168,13 @@ function setupDelegatedListeners() {
         }
 
         const block = e.target.closest('.tl-block');
-        if (block && block._tlEvent && e.ctrlKey) {
-            e.preventDefault();
-            startBlockCopy(e, block);
+        if (block && block._tlEvent) {
+            if (e.ctrlKey) {
+                e.preventDefault();
+                startBlockCopy(e, block);
+            } else if (!isLeftHandle && !isRightHandle) {
+                startBlockBodyDrag(e, block);
+            }
         }
     });
 
@@ -210,85 +216,62 @@ function setupDelegatedListeners() {
     }
 }
 
-// ─── Drag: Left Handle (transition resize) ────────────────────────────────────
+// ─── Drag: Left Handle (move left edge, right edge fixed) ────────────────────
 
 function startLeftHandleDrag(e, block) {
-    const event = block._tlEvent;
-    const rampEl    = block.querySelector('.tl-block-ramp');
-    const holdEl    = block.querySelector('.tl-block-hold');
-    const handleLeft = e.target;
-    const startX    = e.clientX;
-    const startTransitionPx = event.durationMs * _scale;
-    const delayPx   = event.holdMs * _scale; // YAML delay in px — fixed during this drag
+    const event      = block._tlEvent;
+    const rampEl     = block.querySelector('.tl-block-ramp');
+    const startX     = e.clientX;
+    const origStartPx = event.startMs * _scale;
+    const rightEdgeMs = event.startMs + event.durationMs; // fixed during drag
 
     const onMove = (e2) => {
         const dx = e2.clientX - startX;
-        const rawMs = Math.max(0, startTransitionPx + dx) / _scale;
-        const snappedMs = snapMs(rawMs);
-        const newTransitionPx = snappedMs * _scale;
-        const newVisualHoldPx = Math.max(0, delayPx - newTransitionPx);
-        const newTotalPx = Math.max(8, newTransitionPx + newVisualHoldPx);
-        block.style.width = newTotalPx + 'px';
-        if (rampEl) { rampEl.style.width = newTransitionPx + 'px'; }
-        if (holdEl) { holdEl.style.left = newTransitionPx + 'px'; }
-        handleLeft.style.left = Math.max(0, newTransitionPx - 4) + 'px';
-        const inner = holdEl?.querySelector('.tl-block-inner');
-        if (inner) inner.textContent = buildBlockLabel({ ...event, durationMs: snappedMs });
+        const newStartMs = snapMs(Math.max(0, origStartPx + dx) / _scale);
+        const newDurMs   = Math.max(0, rightEdgeMs - newStartMs);
+        block.style.left  = (newStartMs * _scale) + 'px';
+        block.style.width = Math.max(4, newDurMs * _scale) + 'px';
+        if (rampEl) rampEl.style.width = Math.max(0, newDurMs * _scale) + 'px';
     };
 
     const onUp = (e2) => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
         const dx = e2.clientX - startX;
-        const snappedMs = snapMs(Math.max(0, startTransitionPx + dx) / _scale);
-        applyBlockEdit(event.stepRef, { transition: parseFloat((snappedMs / 1000).toFixed(3)) });
+        const newStartMs = snapMs(Math.max(0, origStartPx + dx) / _scale);
+        const newDurMs   = Math.max(0, rightEdgeMs - newStartMs);
+        applyPreDelayEdit(event, newStartMs);
+        applyBlockEdit(event.stepRef, { transition: parseFloat((newDurMs / 1000).toFixed(3)) });
     };
 
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
 }
 
-// ─── Drag: Right Handle (hold/delay resize) ───────────────────────────────────
+// ─── Drag: Right Handle (extend transition, right edge only) ─────────────────
 
 function startRightHandleDrag(e, block) {
-    const event = block._tlEvent;
-    const holdEl = block.querySelector('.tl-block-hold');
-    const startX = e.clientX;
+    const event    = block._tlEvent;
+    const rampEl   = block.querySelector('.tl-block-ramp');
+    const startX   = e.clientX;
     const startWidth = block.offsetWidth;
-    const transitionPx = event.durationMs * _scale;
-
-    // Blocks starting at or after this block's current end time follow the drag
-    const thresholdMs = event.startMs + Math.max(event.durationMs, event.holdMs);
-    const following = [];
-    document.querySelectorAll('.tl-block').forEach(b => {
-        if (b === block) return;
-        const ev = b._tlEvent;
-        if (ev && ev.startMs >= thresholdMs) {
-            following.push({ el: b, origLeft: parseFloat(b.style.left) || 0 });
-        }
-    });
 
     const onMove = (e2) => {
         const dx = e2.clientX - startX;
-        const rawMs = Math.max(transitionPx + 4, startWidth + dx) / _scale;
+        const rawMs = Math.max(0, startWidth + dx) / _scale;
         const snappedMs = snapMs(rawMs);
-        const snappedPx = Math.max(transitionPx + 4, snappedMs * _scale);
+        const snappedPx = Math.max(4, snappedMs * _scale);
         block.style.width = snappedPx + 'px';
-
-        const deltaPx = snappedPx - startWidth;
-        following.forEach(({ el, origLeft }) => { el.style.left = (origLeft + deltaPx) + 'px'; });
-
-        const inner = holdEl?.querySelector('.tl-block-inner');
-        if (inner) inner.textContent = buildBlockLabel({ ...event, holdMs: snappedMs });
+        if (rampEl) rampEl.style.width = snappedPx + 'px';
     };
 
     const onUp = (e2) => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
         const dx = e2.clientX - startX;
-        const snappedMs = snapMs(Math.max(transitionPx + 4, startWidth + dx) / _scale);
-        applyHoldEdit(event, Math.max(snappedMs, 0));
-        // full re-render via pushTimelineToYaml corrects all positions
+        const snappedMs = snapMs(Math.max(0, startWidth + dx) / _scale);
+        // rebuildAsAlwaysParallel will recalculate gap delays automatically
+        applyBlockEdit(event.stepRef, { transition: parseFloat((snappedMs / 1000).toFixed(3)) });
     };
 
     document.addEventListener('mousemove', onMove);
@@ -335,6 +318,37 @@ function startBlockCopy(e, block) {
     document.addEventListener('mouseup', onUp);
 }
 
+// ─── Drag: Block Body (move block) ───────────────────────────────────────────
+
+function startBlockBodyDrag(e, block) {
+    const event    = block._tlEvent;
+    const startX   = e.clientX;
+    const origLeft = parseFloat(block.style.left) || 0;
+    let hasDragged = false;
+
+    const onMove = (e2) => {
+        const dx = e2.clientX - startX;
+        if (!hasDragged && Math.abs(dx) < 4) return;
+        hasDragged = true;
+        const newStartMs = snapMs(Math.max(0, origLeft + dx) / _scale);
+        block.style.left = (newStartMs * _scale) + 'px';
+    };
+
+    const onUp = (e2) => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (!hasDragged) return;
+        _blockDragFired = true;
+        const dx = e2.clientX - startX;
+        const newStartMs = snapMs(Math.max(0, origLeft + dx) / _scale);
+        applyPreDelayEdit(event, newStartMs);
+        pushTimelineToYaml();
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+}
+
 // ─── YAML → Timeline Compilation ──────────────────────────────────────────────
 
 function compileTimeline(doc) {
@@ -361,6 +375,7 @@ function compileTimeline(doc) {
                     const ids = resolveEntityIds(step);
 
                     // Look ahead: absorb an immediately following delay as holdMs
+                    const actionI = i; // save before possible i++ below
                     let holdMs = 0, delayRef = null, delayParent = null;
                     const nextStep = steps[i + 1];
                     if (nextStep && detectStepType(nextStep) === 'delay') {
@@ -370,7 +385,12 @@ function compileTimeline(doc) {
                         i++; // skip the delay step in the loop
                     }
 
-                    const actionIdx = delayRef ? i - 1 : i;
+                    const actionIdx = actionI;
+
+                    // Look behind using actionI (before i was incremented for post-delay)
+                    const prevStep = actionI > 0 ? steps[actionI - 1] : null;
+                    const preDelayRef = (prevStep && detectStepType(prevStep) === 'delay') ? prevStep : null;
+                    const preDelayParent = preDelayRef ? steps : null;
 
                     ids.forEach(entityId => {
                         events.push({
@@ -387,6 +407,8 @@ function compileTimeline(doc) {
                             indexInParent:  actionIdx,
                             delayRef,
                             delayParent,
+                            preDelayRef,
+                            preDelayParent,
                             repeatGroup:    repeatGroup || null,
                             isTemplate,
                             hasCondition:   hasCondition || false,
@@ -602,7 +624,8 @@ function renderTimeline(events, totalMs) {
         for (let i = 0; i < sorted.length - 1; i++) {
             const curr = sorted[i];
             const next = sorted[i + 1];
-            const gapStartMs = curr.startMs + (curr.holdMs || 0);
+            // Gap starts after the block's transition (durationMs), not holdMs
+            const gapStartMs = curr.startMs + (curr.durationMs || 0);
             const gapEndMs   = next.startMs;
             if (gapEndMs <= gapStartMs) continue;
             const zone = document.createElement('div');
@@ -663,12 +686,12 @@ function renderTimeline(events, totalMs) {
 
 function buildBlockElement(event) {
     const transitionPx = Math.max(0, event.durationMs * _scale);
-    // delay runs concurrently with transition; visual hold = time AFTER transition completes
-    const visualHoldPx = Math.max(0, (event.holdMs - event.durationMs) * _scale);
-    const totalPx      = Math.max(8, transitionPx + visualHoldPx || 8);
+    // Blocks represent only the transition. Instant changes (durationMs=0) → 4px marker.
+    const totalPx = event.durationMs > 0 ? Math.max(8, transitionPx) : 16;
 
     const block = document.createElement('div');
     block.className = 'tl-block';
+    if (event.durationMs === 0) block.classList.add('tl-block-instant');
     block.style.left  = (event.startMs * _scale) + 'px';
     block.style.width = totalPx + 'px';
 
@@ -691,12 +714,12 @@ function buildBlockElement(event) {
         textColor = '#eee';
     }
 
-    // ── Ramp zone (transition, left side) ──────────────────────────────────
+    // ── Ramp zone (covers full block width — transition only model) ────────
     const rampEl = document.createElement('div');
     rampEl.className = 'tl-block-ramp';
-    rampEl.style.width = transitionPx + 'px';
+    rampEl.style.width = totalPx + 'px';
 
-    if (transitionPx > 0) {
+    if (event.durationMs > 0) {
         if (event.isTemplate) {
             rampEl.style.background = 'repeating-linear-gradient(45deg,#44475a 0 4px,#282a36 4px 8px)';
         } else {
@@ -706,7 +729,7 @@ function buildBlockElement(event) {
             const oldRgb = `rgb(${pr0},${pr1},${pr2})`;
             const newRgb = `rgb(${tr0},${tr1},${tr2})`;
 
-            // Upper triangle (diagonal from bottom-left to top-right): gradient old → new
+            // Upper triangle: gradient old → new
             const topDiv = document.createElement('div');
             topDiv.style.cssText = `position:absolute;inset:0;background:linear-gradient(to right,${oldRgb},${newRgb});clip-path:polygon(0% 0%,100% 0%,0% 100%);pointer-events:none`;
             rampEl.appendChild(topDiv);
@@ -716,22 +739,24 @@ function buildBlockElement(event) {
             botDiv.style.cssText = `position:absolute;inset:0;background:${newRgb};clip-path:polygon(100% 0%,100% 100%,0% 100%);pointer-events:none`;
             rampEl.appendChild(botDiv);
         }
+    } else {
+        // Instant change: solid color fill
+        if (event.isTemplate) {
+            rampEl.style.background = 'repeating-linear-gradient(45deg,#44475a 0 4px,#282a36 4px 8px)';
+        } else if (thisRgb) {
+            rampEl.style.background = `rgb(${thisRgb[0]},${thisRgb[1]},${thisRgb[2]})`;
+        } else {
+            rampEl.style.background = '#555';
+        }
     }
 
-    // ── Hold zone (solid, right side) ──────────────────────────────────────
+    // ── Label overlay (transparent background, spans full block) ───────────
     const holdEl = document.createElement('div');
     holdEl.className = 'tl-block-hold';
-    holdEl.style.left  = transitionPx + 'px';
-    holdEl.style.right = '0';
-    holdEl.style.color = textColor;
-
-    if (event.isTemplate) {
-        holdEl.style.background = 'repeating-linear-gradient(45deg,#44475a 0 4px,#282a36 4px 8px)';
-    } else if (thisRgb) {
-        holdEl.style.background = `rgb(${thisRgb[0]},${thisRgb[1]},${thisRgb[2]})`;
-    } else {
-        holdEl.style.background = '#555';
-    }
+    holdEl.style.left       = '0';
+    holdEl.style.right      = '0';
+    holdEl.style.background = 'transparent';
+    holdEl.style.color      = textColor;
 
     // Inner label
     const inner = document.createElement('div');
@@ -763,12 +788,12 @@ function buildBlockElement(event) {
         block.style.borderColor = 'rgba(139,233,253,0.55)';
     }
 
-    // ── Left handle (transition resize) ────────────────────────────────────
+    // ── Left handle (move left edge, extends transition left) ──────────────
     const handleLeft = document.createElement('div');
     handleLeft.className = 'tl-block-handle-left';
-    handleLeft.style.left = Math.max(0, transitionPx - 4) + 'px';
+    handleLeft.style.left = '0';
 
-    // ── Right handle (hold resize) ─────────────────────────────────────────
+    // ── Right handle (extend transition right) ─────────────────────────────
     const handle = document.createElement('div');
     handle.className = 'tl-block-handle';
 
@@ -820,17 +845,6 @@ function showBlockPopover(blockEl, event) {
     trRow.appendChild(trInput);
     popover.appendChild(trRow);
 
-    // Hold (extra time after transition completes)
-    const holdRow = makePopoverRow(t('tl_hold'));
-    const extraHoldSecs = Math.max(0, parseFloat(((event.holdMs - event.durationMs) / 1000).toFixed(2)));
-    const holdInput = makeNumberInput(extraHoldSecs, 0, null, 0.1);
-    holdInput.addEventListener('change', () => {
-        const totalDelayMs = event.durationMs + (parseFloat(holdInput.value) || 0) * 1000;
-        applyHoldEdit(event, totalDelayMs);
-    });
-    holdRow.appendChild(holdInput);
-    popover.appendChild(holdRow);
-
     // Delete
     const delBtn = document.createElement('button');
     delBtn.className = 'tl-popover-delete';
@@ -877,24 +891,17 @@ function showNewBlockPopover(entityId, startMs, clickX, clickY) {
     trRow.appendChild(trInput);
     popover.appendChild(trRow);
 
-    // Hold
-    const holdRow = makePopoverRow(t('tl_hold'));
-    const holdInput = makeNumberInput(2, 0, null, 0.1);
-    holdRow.appendChild(holdInput);
-    popover.appendChild(holdRow);
-
     // Ghost helpers
     const doc = getCurrentDoc();
     const effectiveStartMs = resolveInsertMs(doc?.sequence || [], startMs, entityId);
 
     const buildGhostEvent = () => {
-        const tr   = (parseFloat(trInput.value)   || 0) * 1000;
-        const hold = (parseFloat(holdInput.value) || 0) * 1000;
+        const tr = (parseFloat(trInput.value) || 0) * 1000;
         return {
             entityId,
-            startMs: effectiveStartMs,
+            startMs:      effectiveStartMs,
             durationMs:   tr,
-            holdMs:       tr + hold,
+            holdMs:       tr,
             color:        hexToRgb(colorInput.value),
             brightness:   parseFloat(brInput.value),
             isOff:        false,
@@ -924,14 +931,13 @@ function showNewBlockPopover(entityId, startMs, clickX, clickY) {
         const color      = hexToRgb(colorInput.value);
         const brightness = parseFloat(brInput.value);
         const transition = parseFloat(trInput.value) || 0;
-        const hold       = parseFloat(holdInput.value) || 0;
         closePopover();
-        createNewBlock(entityId, startMs, color, brightness, transition, hold);
+        createNewBlock(entityId, startMs, color, brightness, transition);
     });
     popover.appendChild(createBtn);
 
     // Live-update ghost when inputs change
-    [colorInput, brInput, trInput, holdInput].forEach(inp => {
+    [colorInput, brInput, trInput].forEach(inp => {
         inp.addEventListener('input', () => {
             if (document.getElementById('tl-block-ghost')) showGhost();
         });
@@ -1180,6 +1186,30 @@ function applyBlockEdit(stepRef, changes) {
     pushTimelineToYaml();
 }
 
+// Adjusts the delay step immediately before the action to shift the block's startMs.
+function applyPreDelayEdit(event, newStartMs) {
+    const delta = newStartMs - event.startMs;
+    if (Math.abs(delta) < 1) return;
+
+    if (event.preDelayRef) {
+        const oldMs = parseDelayMs(event.preDelayRef.delay);
+        const newSecs = Math.max(0, (oldMs + delta) / 1000);
+        if (newSecs > 0) {
+            event.preDelayRef.delay = { seconds: parseFloat(newSecs.toFixed(3)) };
+        } else {
+            const idx = event.preDelayParent?.indexOf(event.preDelayRef);
+            if (idx !== undefined && idx >= 0) event.preDelayParent.splice(idx, 1);
+        }
+    } else if (delta > 0) {
+        // No pre-delay exists (block was at t=0). Insert one before the action.
+        const aIdx = event.parentArray?.indexOf(event.stepRef);
+        if (aIdx !== undefined && aIdx >= 0) {
+            event.parentArray.splice(aIdx, 0, { delay: { seconds: parseFloat((delta / 1000).toFixed(3)) } });
+        }
+    }
+    // delta < 0 with no preDelayRef: already at t=0, can't move further left
+}
+
 function applyHoldEdit(event, newHoldMs) {
     const secs = parseFloat((newHoldMs / 1000).toFixed(2));
     if (event.delayRef) {
@@ -1209,7 +1239,7 @@ function deleteStep(event) {
     pushTimelineToYaml();
 }
 
-function createNewBlock(entityId, startMs, color, brightness, transition, holdSecs) {
+function createNewBlock(entityId, startMs, color, brightness, transition) {
     const doc = getCurrentDoc();
     if (!doc) return;
     if (!doc.sequence) doc.sequence = [];
@@ -1224,12 +1254,48 @@ function createNewBlock(entityId, startMs, color, brightness, transition, holdSe
     if (transition > 0) actionStep.data.transition = parseFloat(transition);
 
     const stepsToInsert = [actionStep];
-    // delay must cover at least the transition duration (they run concurrently)
-    const totalDelaySecs = parseFloat((parseFloat(transition || 0) + parseFloat(holdSecs || 0)).toFixed(2));
-    if (totalDelaySecs > 0) stepsToInsert.push({ delay: { seconds: totalDelaySecs } });
+    if (transition > 0) stepsToInsert.push({ delay: { seconds: parseFloat(parseFloat(transition).toFixed(3)) } });
 
-    insertAtMs(doc.sequence, startMs, stepsToInsert, entityId);
+    appendBlockToBranch(doc.sequence, entityId, startMs, stepsToInsert);
     pushTimelineToYaml();
+}
+
+// Appends steps into entityId's branch in the top-level parallel block.
+// Inserts a leading gap delay if targetMs > current branch end time.
+// Creates a new parallel block (or new branch) if none exists.
+function appendBlockToBranch(seq, entityId, targetMs, stepsToInsert) {
+    // Find (or create) the top-level parallel step
+    let parallelStep = seq.find(s => detectStepType(s) === 'parallel');
+    if (!parallelStep) {
+        parallelStep = { parallel: [] };
+        seq.push(parallelStep);
+    }
+
+    // Find entity's branch
+    const branchObj = parallelStep.parallel.find(b => {
+        const bSeq = Array.isArray(b) ? b : (b.sequence || []);
+        return bSeq.some(s => (s.action || s.service) && resolveEntityIds(s).includes(entityId));
+    });
+    const branchSeq = branchObj
+        ? (Array.isArray(branchObj) ? branchObj : branchObj.sequence)
+        : null;
+
+    if (branchSeq) {
+        // Compute current branch end (sum of all delays = time after last block's transition)
+        let branchEndMs = 0;
+        for (const s of branchSeq) {
+            if (detectStepType(s) === 'delay') branchEndMs += parseDelayMs(s.delay);
+        }
+        const gapMs = Math.max(0, targetMs - branchEndMs);
+        if (gapMs > 0) branchSeq.push({ delay: { seconds: parseFloat((gapMs / 1000).toFixed(3)) } });
+        branchSeq.push(...stepsToInsert);
+    } else {
+        // New branch for this entity
+        const newBranch = [];
+        if (targetMs > 0) newBranch.push({ delay: { seconds: parseFloat((targetMs / 1000).toFixed(3)) } });
+        newBranch.push(...stepsToInsert);
+        parallelStep.parallel.push({ sequence: newBranch });
+    }
 }
 
 function duplicateBlock(sourceEvent, targetEntityId, startMs) {
@@ -1243,11 +1309,11 @@ function duplicateBlock(sourceEvent, targetEntityId, startMs) {
         data: dataCopy,
     };
     const stepsToInsert = [actionStep];
-    if (sourceEvent.holdMs > 0) {
-        stepsToInsert.push({ delay: { seconds: parseFloat((sourceEvent.holdMs / 1000).toFixed(2)) } });
+    if (sourceEvent.durationMs > 0) {
+        stepsToInsert.push({ delay: { seconds: parseFloat((sourceEvent.durationMs / 1000).toFixed(3)) } });
     }
 
-    insertAtMs(doc.sequence, startMs, stepsToInsert, targetEntityId);
+    appendBlockToBranch(doc.sequence, targetEntityId, startMs, stepsToInsert);
     pushTimelineToYaml();
 }
 
@@ -1345,43 +1411,24 @@ function insertAtMs(seq, targetMs, stepsToInsert, entityId) {
     seq.push(...stepsToInsert);
 }
 
-// Returns the ms position where a block for entityId would actually land after insertion.
-// Mirrors insertAtMs logic without modifying the sequence.
+// Returns the effective ms position where a block for entityId would land.
+// In the always-parallel model: new blocks append to the entity's branch end,
+// or at targetMs if targetMs is past the branch end.
 function resolveInsertMs(seq, targetMs, entityId) {
-    let ms = 0;
-    for (let i = 0; i < seq.length; i++) {
-        const type = detectStepType(seq[i]);
-        if (type === 'parallel') {
-            if (ms >= targetMs) return ms;
-            const dur = parallelDurationMs(seq[i]);
-            if (entityId && targetMs < ms + dur) {
-                // Find where the entity's branch ends within this block
-                const branchSeq = findEntityBranch(seq[i].parallel, entityId);
-                if (branchSeq) {
-                    let branchMs = ms;
-                    for (const s of branchSeq) {
-                        if (detectStepType(s) === 'delay') branchMs += parseDelayMs(s.delay);
-                    }
-                    return branchMs;
+    for (const step of seq) {
+        if (detectStepType(step) === 'parallel') {
+            const branchSeq = findEntityBranch(step.parallel, entityId);
+            if (branchSeq) {
+                let branchEndMs = 0;
+                for (const s of branchSeq) {
+                    if (detectStepType(s) === 'delay') branchEndMs += parseDelayMs(s.delay);
                 }
-                return targetMs; // entity not in block → would start at click time
+                return Math.max(targetMs, branchEndMs);
             }
-            ms += dur;
-        } else if (type === 'action') {
-            if (ms === targetMs) return ms;
-        } else if (type === 'delay') {
-            const delayMs = parseDelayMs(seq[i].delay);
-            if (ms >= targetMs) return ms;
-            const prevIsAction = i > 0 && detectStepType(seq[i - 1]) === 'action';
-            ms += delayMs;
-            if (ms > targetMs) {
-                // Hold delay → new block starts at click position (parallel);
-                // Gap delay → block goes after the delay.
-                return prevIsAction ? targetMs : ms;
-            }
+            return targetMs; // entity not yet in any branch
         }
     }
-    return ms; // append at end
+    return targetMs; // no parallel block yet
 }
 
 function parallelDurationMs(step) {
@@ -1428,89 +1475,43 @@ function normalizeParallel(doc) {
     const normalEvents = events.filter(ev => !ev.repeatGroup && !ev.hasCondition);
     if (normalEvents.length === 0) return;
 
-    doc.sequence = buildSequenceFromEvents(normalEvents);
+    doc.sequence = rebuildAsAlwaysParallel(normalEvents);
 }
 
-function buildSequenceFromEvents(events) {
+// Rebuilds sequence as always-parallel: one branch per entity, all in a single parallel block.
+// Block width = transition (durationMs). Gap delays separate from transition delays.
+function rebuildAsAlwaysParallel(events) {
     if (events.length === 0) return [];
 
-    // endMs based on YAML clock (holdMs = delay after action, not visual transition duration)
-    const withEnd = events.map(ev => ({
-        ...ev,
-        endMs: ev.startMs + (ev.holdMs || 0),
-    }));
-
-    // All distinct entity IDs
-    const allEntities = [...new Set(withEnd.map(e => e.entityId))].sort();
-
-    // Candidate sync-point times: all startMs + endMs values
-    const candidates = [...new Set([0, ...withEnd.map(e => e.startMs), ...withEnd.map(e => e.endMs)])].sort((a, b) => a - b);
-
-    // T is a sync point if every entity has no event crossing T
-    // (all events with startMs < T must have endMs <= T)
-    const syncPoints = candidates.filter(T =>
-        allEntities.every(eid => {
-            const before = withEnd.filter(e => e.entityId === eid && e.startMs < T);
-            return before.every(e => e.endMs <= T);
-        })
-    );
-
-    const output = [];
-    let globalMs = 0;
-
-    for (let si = 0; si < syncPoints.length - 1; si++) {
-        const chunkStart = syncPoints[si];
-        const chunkEnd   = syncPoints[si + 1];
-
-        const chunkEvents = withEnd.filter(e => e.startMs >= chunkStart && e.startMs < chunkEnd);
-        if (chunkEvents.length === 0) continue;
-
-        // Global delay before this chunk
-        if (chunkStart > globalMs) {
-            output.push({ delay: { seconds: parseFloat(((chunkStart - globalMs) / 1000).toFixed(3)) } });
-        }
-
-        const chunkEntities = [...new Set(chunkEvents.map(e => e.entityId))].sort();
-
-        if (chunkEntities.length === 1) {
-            // Sequential: single entity in this chunk
-            chunkEvents.forEach(ev => {
-                output.push(eventToActionStep(ev));
-                if (ev.holdMs > 0) {
-                    output.push({ delay: { seconds: parseFloat((ev.holdMs / 1000).toFixed(3)) } });
-                }
-            });
-        } else {
-            // Parallel block: one branch per entity
-            const branches = chunkEntities.map(eid => {
-                const entityEvents = chunkEvents.filter(e => e.entityId === eid).sort((a, b) => a.startMs - b.startMs);
-                const branch = [];
-                let branchMs = chunkStart;
-
-                entityEvents.forEach(ev => {
-                    if (ev.startMs > branchMs) {
-                        branch.push({ delay: { seconds: parseFloat(((ev.startMs - branchMs) / 1000).toFixed(3)) } });
-                    }
-                    branch.push(eventToActionStep(ev));
-                    if (ev.holdMs > 0) {
-                        branch.push({ delay: { seconds: parseFloat((ev.holdMs / 1000).toFixed(3)) } });
-                    }
-                    branchMs = ev.startMs + (ev.holdMs || 0);
-                });
-
-                // No padding needed: HA's parallel block ends when the LONGEST branch
-                // finishes. Shorter branches complete early and the light holds its last
-                // state automatically. Padding would corrupt the holdMs of the last block.
-
-                return { sequence: branch };
-            });
-            output.push({ parallel: branches });
-        }
-
-        globalMs = chunkEnd;
+    // Group by entity, sort by startMs
+    const byEntity = {};
+    for (const ev of events) {
+        (byEntity[ev.entityId] ??= []).push(ev);
     }
+    for (const arr of Object.values(byEntity)) arr.sort((a, b) => a.startMs - b.startMs);
 
-    return output;
+    // Build one branch per entity
+    const branches = Object.entries(byEntity).map(([, evs]) => {
+        const seq = [];
+        let branchMs = 0;
+
+        for (const ev of evs) {
+            // Gap delay before this block (if any)
+            if (ev.startMs > branchMs) {
+                seq.push({ delay: { seconds: parseFloat(((ev.startMs - branchMs) / 1000).toFixed(3)) } });
+            }
+            seq.push(eventToActionStep(ev));
+            // Transition delay (always = durationMs, so HA clock advances correctly)
+            if (ev.durationMs > 0) {
+                seq.push({ delay: { seconds: parseFloat((ev.durationMs / 1000).toFixed(3)) } });
+            }
+            branchMs = ev.startMs + (ev.durationMs || 0);
+        }
+
+        return { sequence: seq };
+    });
+
+    return [{ parallel: branches }];
 }
 
 function eventToActionStep(event) {
@@ -1601,11 +1602,7 @@ function hasTemplateIn(...vals) {
 
 function buildBlockLabel(event) {
     if (event.isOff) return 'off';
-    const br = event.brightness != null ? `${Math.round(event.brightness)}%` : '';
-    const extraHoldMs = Math.max(0, (event.holdMs || 0) - (event.durationMs || 0));
-    const hold = extraHoldMs > 500 ? `${(extraHoldMs / 1000).toFixed(1)}s` : '';
-    if (br && hold) return `${br} · ${hold}`;
-    return br || hold || '';
+    return event.brightness != null ? `${Math.round(event.brightness)}%` : '';
 }
 
 function tickIntervalGcd(a, b) { return b === 0 ? a : tickIntervalGcd(b, a % b); }

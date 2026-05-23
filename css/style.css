@@ -2459,7 +2459,7 @@ body.simulation-running .panel-tab.active {
     top: 4px;
     height: 28px;
     border-radius: 4px;
-    cursor: pointer;
+    cursor: grab;
     overflow: hidden;
     box-sizing: border-box;
     border: 1px solid rgba(255, 255, 255, 0.15);
@@ -2607,6 +2607,47 @@ body.simulation-running .panel-tab.active {
     padding: 1px 4px;
     border-radius: 2px;
     border: 1px solid rgba(189, 147, 249, 0.25);
+}
+
+/* ─── Instant Change Marker (transition: 0) ────────────── */
+.tl-block-instant {
+    width: 16px !important;
+    min-width: 16px !important;
+    border-radius: 3px;
+    border: 1.5px solid rgba(255, 255, 255, 0.65) !important;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.18), inset 0 0 4px rgba(0, 0, 0, 0.25);
+    overflow: visible;
+}
+/* Diagonal stripes signal "zero time passes" */
+.tl-block-instant::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: repeating-linear-gradient(
+        -45deg,
+        transparent          0 2px,
+        rgba(0, 0, 0, 0.28)  2px 3.5px
+    );
+    pointer-events: none;
+    z-index: 2;
+}
+/* Bright top-edge accent line */
+.tl-block-instant::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border-top: 2px solid rgba(255, 255, 255, 0.55);
+    pointer-events: none;
+    z-index: 3;
+}
+.tl-block-instant .tl-block-ramp {
+    width: 100% !important;
+}
+/* No label — too narrow */
+.tl-block-instant .tl-block-inner {
+    display: none;
 }
 
 /* ─── Block Ghost (create preview) ─────────────────────── */

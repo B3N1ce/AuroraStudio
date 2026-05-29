@@ -28,6 +28,8 @@ let _statFps = 0;
 let _statFrameMs = 0;
 let dragTarget = null;
 let dragOffset = { x: 0, y: 0 };
+let touchDragTarget = null;
+let touchDragOffX = 0, touchDragOffY = 0;
 
 // Simulation room pan/zoom state
 let simPanX = 0, simPanY = 0, simZoom = 1.0;
@@ -367,16 +369,65 @@ function initSimPanZoom() {
         room.classList.remove('panning');
     });
 
-    // Touch: 1-finger pan + 2-finger pinch-zoom
+    // Touch: 1-finger pan + 2-finger pinch-zoom + hold-to-drag lamps
     let _td = 0, _tmx = 0, _tmy = 0;
     let _stActive = false, _stLastX = 0, _stLastY = 0;
+    let _holdTimer = null, _holdLamp = null, _holdStartX = 0, _holdStartY = 0;
+
+    function _cancelHold() {
+        if (_holdTimer) { clearTimeout(_holdTimer); _holdTimer = null; }
+        _holdLamp = null;
+    }
+
     room.addEventListener('touchstart', (e) => {
         if (e.touches.length === 1) {
-            _stActive = true;
-            _stLastX = e.touches[0].clientX;
-            _stLastY = e.touches[0].clientY;
-            room.classList.add('panning');
+            const touch = e.touches[0];
+            _holdStartX = touch.clientX;
+            _holdStartY = touch.clientY;
+
+            // Hold-to-drag: check if touch lands on a lamp.
+            // While hold is pending, panning is suppressed so the image
+            // doesn't drift during the 400ms wait.
+            let lampHit = false;
+            if (canvas && entitiesVisible) {
+                const rect = canvas.getBoundingClientRect();
+                const tx = (touch.clientX - rect.left) / simZoom;
+                const ty = (touch.clientY - rect.top) / simZoom;
+                const lampList = [...lamps.values()].reverse();
+                for (const lamp of lampList) {
+                    const dx = tx - lamp.x;
+                    const dy = ty - lamp.y;
+                    if (dx * dx + dy * dy < 50 * 50) {
+                        lampHit = true;
+                        _holdLamp = lamp;
+                        touchDragOffX = dx;
+                        touchDragOffY = dy;
+                        _holdTimer = setTimeout(() => {
+                            _holdTimer = null;
+                            touchDragTarget = _holdLamp;
+                            _holdLamp = null;
+                            _stActive = false;
+                            room.classList.remove('panning');
+                            navigator.vibrate?.(50);
+                            isDirty = true;
+                        }, 400);
+                        break;
+                    }
+                }
+            }
+
+            // Only start panning immediately if no lamp was hit.
+            // If a lamp WAS hit but the finger moves >20px, panning starts
+            // retroactively in touchmove (after cancelling the hold timer).
+            if (!lampHit) {
+                _stActive = true;
+                _stLastX = touch.clientX;
+                _stLastY = touch.clientY;
+                room.classList.add('panning');
+            }
         } else if (e.touches.length === 2) {
+            _cancelHold();
+            touchDragTarget = null;
             _stActive = false;
             e.preventDefault();
             const rect = room.getBoundingClientRect();
@@ -386,16 +437,42 @@ function initSimPanZoom() {
             _tmy = (t0.clientY + t1.clientY) / 2 - rect.top;
         }
     }, { passive: false });
+
     room.addEventListener('touchmove', (e) => {
         e.preventDefault();
-        if (e.touches.length === 1 && _stActive) {
-            const dx = e.touches[0].clientX - _stLastX;
-            const dy = e.touches[0].clientY - _stLastY;
-            simPanX += dx;
-            simPanY += dy;
-            _stLastX = e.touches[0].clientX;
-            _stLastY = e.touches[0].clientY;
-            applySimTransform();
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+
+            // Cancel hold if finger moved more than 20px; switch to panning.
+            if (_holdTimer) {
+                const mdx = touch.clientX - _holdStartX;
+                const mdy = touch.clientY - _holdStartY;
+                if (mdx * mdx + mdy * mdy > 400) {
+                    _cancelHold();
+                    _stActive = true;
+                    _stLastX = touch.clientX;
+                    _stLastY = touch.clientY;
+                    room.classList.add('panning');
+                }
+            }
+
+            if (touchDragTarget && canvas) {
+                // Drag the lamp
+                const rect = canvas.getBoundingClientRect();
+                const tx = (touch.clientX - rect.left) / simZoom;
+                const ty = (touch.clientY - rect.top) / simZoom;
+                touchDragTarget.x = Math.max(0, Math.min(ROOM_SIZE, tx - touchDragOffX));
+                touchDragTarget.y = Math.max(0, Math.min(ROOM_SIZE, ty - touchDragOffY));
+                isDirty = true;
+            } else if (_stActive) {
+                const dx = touch.clientX - _stLastX;
+                const dy = touch.clientY - _stLastY;
+                simPanX += dx;
+                simPanY += dy;
+                _stLastX = touch.clientX;
+                _stLastY = touch.clientY;
+                applySimTransform();
+            }
         } else if (e.touches.length === 2) {
             simZoomUserSet = true;
             const rect = room.getBoundingClientRect();
@@ -413,8 +490,16 @@ function initSimPanZoom() {
             applySimTransform();
         }
     }, { passive: false });
+
     room.addEventListener('touchend', (e) => {
+        _cancelHold();
         _td = 0;
+        if (touchDragTarget) {
+            touchDragTarget.nx = touchDragTarget.x / ROOM_SIZE;
+            touchDragTarget.ny = touchDragTarget.y / ROOM_SIZE;
+            savePositions();
+            touchDragTarget = null;
+        }
         if (e.touches.length === 0) {
             _stActive = false;
             room.classList.remove('panning');
@@ -490,7 +575,7 @@ function lerp(a, b, t) {
 function drawLoop(now) {
     if (!ctx) { requestAnimationFrame(drawLoop); return; }
 
-    const anyTransitioning = dragTarget !== null ||
+    const anyTransitioning = dragTarget !== null || touchDragTarget !== null ||
         (lamps.size > 0 && [...lamps.values()].some(l => l.transitionEnd > now));
 
     if (!isDirty && !anyTransitioning) {
@@ -576,6 +661,15 @@ function drawLoop(now) {
             ctx.strokeStyle = groups[lamp.id] ? '#bd93f9' : '#444';
             ctx.lineWidth = 2;
             ctx.stroke();
+
+            // Touch-drag highlight ring
+            if (lamp === touchDragTarget) {
+                ctx.beginPath();
+                ctx.arc(lamp.x, lamp.y, 34, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
 
             // Label
             if (labelsVisible) {

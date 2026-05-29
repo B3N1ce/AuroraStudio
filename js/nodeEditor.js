@@ -533,18 +533,25 @@ function renderBranchColumns(container, branches, onRebuild) {
 
         branchEl.appendChild(label);
 
-        // Every branch in 'parallel' is a sequence.
-        // In HA, a sequence can be a single step or a list of steps.
-        // We normalize to a list (array) here to ensure renderSequence can 
-        // correctly manage the steps (add/delete) via reference.
-        if (!Array.isArray(branch)) {
-            branches[i] = [branch];
+        // Normalize branch to a sequence for rendering.
+        // Three valid forms from Home Assistant / Timeline Editor:
+        //   1. { sequence: [...] }  — named-sequence form (Timeline output)
+        //   2. [step, step, ...]    — plain array
+        //   3. { action: ... }      — single step → normalize to array
+        let seqParent, seqKey;
+        if (branch && typeof branch === 'object' && !Array.isArray(branch) && Array.isArray(branch.sequence)) {
+            // Named-sequence wrapper: render inner array but keep wrapper for YAML
+            seqParent = branch;
+            seqKey = 'sequence';
+        } else {
+            if (!Array.isArray(branch)) {
+                branches[i] = [branch];
+            }
+            seqParent = branches;
+            seqKey = i;
         }
-        const seq = branches[i];
 
-        // We pass 'branches' as parentObj and 'i' as key. 
-        // This ensures that if the entire sequence is replaced, the branches array is updated.
-        branchEl.appendChild(renderSequence(seq, branches, i));
+        branchEl.appendChild(renderSequence(seqParent[seqKey], seqParent, seqKey));
         container.appendChild(branchEl);
     });
 }

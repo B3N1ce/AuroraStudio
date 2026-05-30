@@ -438,43 +438,184 @@ function init() {
     const btnNewScript = document.getElementById('btn-new-script');
     const newScriptMenu = document.getElementById('new-script-menu');
 
+    const SCRIPT_TEMPLATES = {
+        scratch: [
+            'alias: New Animation',
+            'description: "Clean slate"',
+            'mode: single',
+            'sequence: []',
+        ].join('\n'),
+
+        tpl_beginner: [
+            'alias: Erste Schritte',
+            'description: "Eine Lampe einschalten"',
+            'mode: single',
+            'sequence:',
+            '  - action: light.turn_on',
+            '    target:',
+            '      entity_id: light.living_room',
+            '    data:',
+            '      rgb_color: [98, 160, 234]',
+            '      brightness_pct: 80',
+            '      transition: 1',
+        ].join('\n'),
+
+        tpl_sequence: [
+            'alias: Farbwechsel',
+            'description: "Drei Farben nacheinander mit Delay"',
+            'mode: single',
+            'sequence:',
+            '  - action: light.turn_on',
+            '    target:',
+            '      entity_id: light.living_room',
+            '    data:',
+            '      rgb_color: [98, 160, 234]',
+            '      brightness_pct: 80',
+            '      transition: 2',
+            '  - delay:',
+            '      seconds: 2',
+            '  - action: light.turn_on',
+            '    target:',
+            '      entity_id: light.living_room',
+            '    data:',
+            '      rgb_color: [234, 98, 98]',
+            '      brightness_pct: 60',
+            '      transition: 2',
+            '  - delay:',
+            '      seconds: 2',
+            '  - action: light.turn_on',
+            '    target:',
+            '      entity_id: light.living_room',
+            '    data:',
+            '      rgb_color: [98, 210, 140]',
+            '      brightness_pct: 100',
+            '      transition: 2',
+        ].join('\n'),
+
+        tpl_parallel: [
+            'alias: Parallele Lampen',
+            'description: "Zwei Lampen gleichzeitig animieren"',
+            'mode: single',
+            'sequence:',
+            '  - parallel:',
+            '    - sequence:',
+            '      - action: light.turn_on',
+            '        target:',
+            '          entity_id: light.living_room',
+            '        data:',
+            '          rgb_color: [98, 160, 234]',
+            '          brightness_pct: 100',
+            '          transition: 2',
+            '      - delay:',
+            '          seconds: 2',
+            '      - action: light.turn_on',
+            '        target:',
+            '          entity_id: light.living_room',
+            '        data:',
+            '          rgb_color: [234, 120, 80]',
+            '          brightness_pct: 70',
+            '          transition: 3',
+            '    - sequence:',
+            '      - delay:',
+            '          seconds: 1',
+            '      - action: light.turn_on',
+            '        target:',
+            '          entity_id: light.bedroom',
+            '        data:',
+            '          rgb_color: [160, 80, 234]',
+            '          brightness_pct: 60',
+            '          transition: 2',
+        ].join('\n'),
+
+        tpl_repeat: [
+            'alias: Atemeffekt',
+            'description: "Sanftes Pulsieren, 4 Wiederholungen"',
+            'mode: single',
+            'sequence:',
+            '  - repeat:',
+            '      count: 4',
+            '      sequence:',
+            '        - action: light.turn_on',
+            '          target:',
+            '            entity_id: light.living_room',
+            '          data:',
+            '            rgb_color: [98, 160, 234]',
+            '            brightness_pct: 100',
+            '            transition: 1.5',
+            '        - delay:',
+            '            seconds: 1.5',
+            '        - action: light.turn_on',
+            '          target:',
+            '            entity_id: light.living_room',
+            '          data:',
+            '            rgb_color: [98, 160, 234]',
+            '            brightness_pct: 5',
+            '            transition: 1.5',
+            '        - delay:',
+            '            seconds: 1.5',
+        ].join('\n'),
+
+        tpl_choose: [
+            'alias: Tageszeit-Stimmung',
+            'description: "Farbe abhängig von Variable wählen"',
+            'mode: single',
+            'variables:',
+            '  stimmung: entspannt',
+            'sequence:',
+            '  - choose:',
+            '    - conditions:',
+            '        - condition: template',
+            '          value_template: "{{ stimmung == \'aktiv\' }}"',
+            '      sequence:',
+            '        - action: light.turn_on',
+            '          target:',
+            '            entity_id: light.living_room',
+            '          data:',
+            '            rgb_color: [255, 240, 180]',
+            '            brightness_pct: 100',
+            '            transition: 1',
+            '    - conditions:',
+            '        - condition: template',
+            '          value_template: "{{ stimmung == \'entspannt\' }}"',
+            '      sequence:',
+            '        - action: light.turn_on',
+            '          target:',
+            '            entity_id: light.living_room',
+            '          data:',
+            '            rgb_color: [234, 100, 60]',
+            '            brightness_pct: 35',
+            '            transition: 2',
+            '    default:',
+            '      - action: light.turn_on',
+            '        target:',
+            '          entity_id: light.living_room',
+            '        data:',
+            '          rgb_color: [98, 160, 234]',
+            '          brightness_pct: 50',
+            '          transition: 1',
+        ].join('\n'),
+    };
+
     if (btnNewScript && newScriptMenu) {
         btnNewScript.addEventListener('click', (e) => toggleDropdown(e, btnNewScript, newScriptMenu));
 
-        // Handle Item Clicks
         newScriptMenu.querySelectorAll('.dropdown-item').forEach(item => {
             item.addEventListener('click', () => {
                 const action = item.dataset.action;
-
-                if (action === 'scratch' || action === 'template') {
-                    let content = "";
-                    if (action === 'scratch') {
-                        content = `alias: New Animation\ndescription: "Clean slate"\nmode: single\nsequence:\n  - `;
-                    } else {
-                        content = `alias: New Animation\ndescription: "A fresh start"\nmode: single\nsequence:\n  - service: light.turn_on\n    target:\n      entity_id: light.living_room\n    data:\n      rgb_color: [255, 230, 200]\n      brightness_pct: 100`;
-                    }
-
-                    // Editor leeren und Template setzen
+                const content = SCRIPT_TEMPLATES[action];
+                if (content !== undefined) {
                     editor.setValue(content);
-
-                    // Lokalen Speicher bereinigen
                     localStorage.setItem('ha_animation_script', content);
                     localStorage.removeItem('ha_simulator_breakpoints');
-
-                    // Simulator State resetten
                     if (breakpoints) breakpoints.clear();
                     refreshBreakpointMarkers();
-
-                    // UI Sync
                     if (typeof validateAndSync === 'function') validateAndSync();
                     const activeTab = document.querySelector('#panel-editor .panel-tab.active');
                     if (activeTab && activeTab.dataset.tab === 'nodes') syncYamlToNodes();
                     resetTimelineState();
                     if (activeTab && activeTab.dataset.tab === 'timeline') { const _d = getCurrentDoc(); if (_d) syncYamlToTimeline(_d); }
-
                     showToast(t('new_script_created') || "Neues Skript erstellt", "success");
                 }
-
                 newScriptMenu.classList.remove('active');
             });
         });

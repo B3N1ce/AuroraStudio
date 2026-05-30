@@ -86,13 +86,30 @@
                             </svg>
                         </button>
                         <div id="new-script-menu" class="dropdown-menu">
-                            <div class="dropdown-item" data-action="scratch">
-                                <span class="item-title" data-i18n="new_from_scratch">From Scratch</span>
-                                <span class="item-desc" data-i18n="new_from_scratch_desc">Leeres Skript starten</span>
+                            <div class="dropdown-item mode-item" data-action="scratch">
+                                <svg class="mode-item-icon" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="7" y1="2" x2="7" y2="12"/><line x1="2" y1="7" x2="12" y2="7"/></svg>
+                                <div><span class="item-title">From Scratch</span><span class="item-desc">Leeres Skript starten</span></div>
                             </div>
-                            <div class="dropdown-item" data-action="template">
-                                <span class="item-title" data-i18n="new_template">Beginner Template</span>
-                                <span class="item-desc" data-i18n="new_template_desc">Mit Beispiel-Code starten</span>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item mode-item" data-action="tpl_beginner">
+                                <svg class="mode-item-icon" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="#6272a4" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4"/><line x1="7" y1="5" x2="7" y2="9"/><line x1="5" y1="7" x2="9" y2="7"/></svg>
+                                <div><span class="item-title">Erste Schritte</span><span class="item-desc">Eine Lampe einschalten</span></div>
+                            </div>
+                            <div class="dropdown-item mode-item" data-action="tpl_sequence">
+                                <svg class="mode-item-icon" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="#e6ac00" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="3" width="10" height="3" rx="1"/><rect x="2" y="8" width="10" height="3" rx="1"/><line x1="7" y1="6" x2="7" y2="8"/></svg>
+                                <div><span class="item-title">Farbwechsel</span><span class="item-desc">Farben mit Delay verketten</span></div>
+                            </div>
+                            <div class="dropdown-item mode-item" data-action="tpl_parallel">
+                                <svg class="mode-item-icon" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="#ff79c6" stroke-width="1.5" stroke-linecap="round"><rect x="1" y="3" width="5" height="8" rx="1"/><rect x="8" y="3" width="5" height="8" rx="1"/></svg>
+                                <div><span class="item-title">Parallele Lampen</span><span class="item-desc">Mehrere Lampen gleichzeitig</span></div>
+                            </div>
+                            <div class="dropdown-item mode-item" data-action="tpl_repeat">
+                                <svg class="mode-item-icon" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="#50fa7b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7 A5 5 0 1 1 7 12"/><polyline points="2 10 2 7 5 7"/></svg>
+                                <div><span class="item-title">Atemeffekt</span><span class="item-desc">Sanftes Pulsieren mit Repeat</span></div>
+                            </div>
+                            <div class="dropdown-item mode-item" data-action="tpl_choose">
+                                <svg class="mode-item-icon" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="#8be9fd" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2 L7 6"/><path d="M7 6 L3 11"/><path d="M7 6 L11 11"/></svg>
+                                <div><span class="item-title">Tageszeit-Stimmung</span><span class="item-desc">Verzweigung mit Choose</span></div>
                             </div>
                         </div>
                     </div>

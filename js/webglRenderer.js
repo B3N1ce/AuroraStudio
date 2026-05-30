@@ -100,9 +100,13 @@ void main() {
     // Without a background image the wall is a uniform colour, which makes them degenerate
     // (e.g. overlay on white → always white). Fall back to multiply-glow in that case,
     // matching the behaviour of the old Canvas 2D pipeline.
+    // When a background image is present, multiply-glow uses a reduced glow term so the
+    // photographic detail remains visible and the light doesn't wash out the image.
     vec3 col;
-    if (u_has_bg == 0 || u_blend == 0) {
-        col = bg * lgt + lgt * 0.5;                                                  // multiply-glow
+    if (u_has_bg == 0) {
+        col = bg * lgt + lgt * 0.5;                                                  // no bg: full multiply-glow
+    } else if (u_blend == 0) {
+        col = bg * lgt + lgt * 0.15;                                                 // multiply-glow + bg: subtle glow halo
     } else if (u_blend == 1) {
         col = bg * lgt;                                                               // multiply
     } else if (u_blend == 2) {
@@ -288,7 +292,8 @@ export function renderScene({ lamps, ambient, wallColor, exposure, blendMode, li
     for (let i = 0; i < n; i++) {
         const l = active[i];
         const baseRadius = 35 + (l.currentBrightness / 4);
-        const radius = baseRadius * 15 * Math.sqrt(lightInfluence);
+        const radiusScale = (_hasBg && blendMode === 'multiply-glow') ? 0.7 : 1.0;
+        const radius = baseRadius * 15 * Math.sqrt(lightInfluence) * radiusScale;
 
         gl.uniform2f(uLampPos[i], l.x, h - l.y);  // flip Y: canvas-top → WebGL-bottom
         gl.uniform3f(uLampRgb[i],

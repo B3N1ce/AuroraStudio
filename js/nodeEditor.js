@@ -493,7 +493,14 @@ function renderDelayNode(step, steps, index, onRebuild) {
 
 function renderParallelNode(step, steps, index, onRebuild) {
     const node = makeNode('node-type-parallel', ICONS.parallel, 'Parallel', step);
-    addNodeControls(node, steps, index, onRebuild);
+    addNodeControls(node, steps, index, onRebuild, () => {
+        const branches = Array.isArray(step.parallel) ? step.parallel : [step.parallel];
+        return branches.flatMap(b => {
+            if (Array.isArray(b)) return b;
+            if (b?.sequence) return b.sequence;
+            return [b];
+        });
+    });
     const body = node.querySelector('.node-body');
 
     const branches = Array.isArray(step.parallel) ? step.parallel : [step.parallel];
@@ -560,7 +567,7 @@ function renderBranchColumns(container, branches, onRebuild) {
 
 function renderRepeatNode(step, steps, index, onRebuild) {
     const node = makeNode('node-type-repeat', ICONS.repeat, 'Repeat', step);
-    addNodeControls(node, steps, index, onRebuild);
+    addNodeControls(node, steps, index, onRebuild, () => step.repeat?.sequence || []);
     const body = node.querySelector('.node-body');
     const r = step.repeat || {};
     step.repeat = r;
@@ -943,6 +950,68 @@ function renderDataFields(container, obj, onChange) {
     container.appendChild(list);
 }
 
+// ─── UNWRAP ────────────────────────────────────────────────────────────────
+
+// Adds an "unwrap" button to a container node's header.
+// getInner() must return the flat array of steps to splice in place.
+
+// ─── WRAP MENU ─────────────────────────────────────────────────────────────
+
+const WRAP_TYPES = [
+    { icon: ICONS.repeat,   label: 'Repeat',   wrap: s => ({ repeat:   { count: 2, sequence: [s] } }) },
+    { icon: ICONS.parallel, label: 'Parallel', wrap: s => ({ parallel: [{ sequence: [s] }] }) },
+    { icon: ICONS.choose,   label: 'Choose',   wrap: s => ({ choose: [{ conditions: [], sequence: [s] }], default: [] }) },
+    { icon: ICONS.if,       label: 'If / Then',wrap: s => ({ if: [], then: [s], else: [] }) },
+];
+
+function showWrapMenu(anchorBtn, steps, index, onRebuild) {
+    document.querySelectorAll('.node-add-menu.open').forEach(m => m.remove());
+    const menu = el('div', 'node-add-menu open');
+
+    const title = el('div', 'node-add-menu-title');
+    title.textContent = 'Wrap in…';
+    menu.appendChild(title);
+
+    WRAP_TYPES.forEach(({ icon, label, wrap }) => {
+        const item = el('div', 'node-add-menu-item');
+        item.innerHTML = `<span class="menu-icon">${icon}</span>${label}`;
+        item.onclick = () => {
+            const original = steps[index];
+            steps.splice(index, 1, wrap(original));
+            menu.remove();
+            onRebuild();
+            pushToYaml();
+        };
+        menu.appendChild(item);
+    });
+
+    document.body.appendChild(menu);
+
+    const anchor = anchorBtn.getBoundingClientRect();
+    const mW = menu.offsetWidth  || 160;
+    const mH = menu.offsetHeight || (WRAP_TYPES.length * 29 + 24);
+    const vW = window.innerWidth, vH = window.innerHeight, gap = 6;
+    let left = anchor.left + anchor.width / 2 - mW / 2;
+    left = Math.max(8, Math.min(left, vW - mW - 8));
+    let top = (anchor.bottom + gap + mH > vH && anchor.top - gap - mH >= 0)
+        ? anchor.top - gap - mH : anchor.bottom + gap;
+    top = Math.max(8, Math.min(top, vH - mH - 8));
+    menu.style.left = `${left}px`;
+    menu.style.top  = `${top}px`;
+
+    const close = (e) => {
+        if (!menu.contains(e.target) && e.target !== anchorBtn) {
+            menu.remove();
+            document.removeEventListener('click', close);
+            document.removeEventListener('scroll', close, true);
+        }
+    };
+    setTimeout(() => {
+        document.addEventListener('click', close);
+        document.addEventListener('scroll', close, true);
+    }, 0);
+}
+
 // ─── ADD STEP MENU ─────────────────────────────────────────────────────────
 
 const STEP_TYPES = [
@@ -1020,42 +1089,64 @@ function showAddMenu(anchorBtn, steps, insertAt, onAdded) {
 
 // ─── NODE CONTROLS (move up/down, delete) ──────────────────────────────────
 
-function addNodeControls(node, steps, index, onRebuild) {
+function addNodeControls(node, steps, index, onRebuild, unwrapFn = null) {
     const actions = node.querySelector('.node-header-actions');
 
-    if (index > 0) {
-        const upBtn = document.createElement('button');
-        upBtn.textContent = '↑';
-        upBtn.title = 'Move up';
-        upBtn.classList.add('btn-move-up');
-        upBtn.onclick = () => {
-            [steps[index], steps[index - 1]] = [steps[index - 1], steps[index]];
-            onRebuild(); pushToYaml();
-        };
-        actions.appendChild(upBtn);
-    }
-
-    if (index < steps.length - 1) {
-        const downBtn = document.createElement('button');
-        downBtn.textContent = '↓';
-        downBtn.title = 'Move down';
-        downBtn.classList.add('btn-move-down');
-        downBtn.onclick = () => {
-            [steps[index], steps[index + 1]] = [steps[index + 1], steps[index]];
-            onRebuild(); pushToYaml();
-        };
-        actions.appendChild(downBtn);
-    }
-
-    const delBtn = document.createElement('button');
-    delBtn.textContent = '✕';
-    delBtn.title = 'Delete step';
-    delBtn.classList.add('btn-entity-header-delete');
-    //delBtn.style.color = '#de1414aa';
-    delBtn.onclick = () => {
-        steps.splice(index, 1);
-        onRebuild(); pushToYaml();
+    const sep = () => {
+        const s = document.createElement('span');
+        s.className = 'node-actions-sep';
+        return s;
     };
+
+    // ── Group 1: Move ──────────────────────────────────────────────────────
+    const hasMoveUp   = index > 0;
+    const hasMoveDown = index < steps.length - 1;
+    if (hasMoveUp || hasMoveDown) {
+        actions.appendChild(sep());
+        if (hasMoveUp) {
+            const btn = document.createElement('button');
+            btn.textContent = '↑'; btn.title = 'Move up';
+            btn.classList.add('btn-move-up');
+            btn.onclick = () => { [steps[index], steps[index-1]] = [steps[index-1], steps[index]]; onRebuild(); pushToYaml(); };
+            actions.appendChild(btn);
+        }
+        if (hasMoveDown) {
+            const btn = document.createElement('button');
+            btn.textContent = '↓'; btn.title = 'Move down';
+            btn.classList.add('btn-move-down');
+            btn.onclick = () => { [steps[index], steps[index+1]] = [steps[index+1], steps[index]]; onRebuild(); pushToYaml(); };
+            actions.appendChild(btn);
+        }
+    }
+
+    // ── Group 2: Structure (Wrap + optional Unwrap) ────────────────────────
+    actions.appendChild(sep());
+    const wrapBtn = document.createElement('button');
+    wrapBtn.textContent = '⊡'; wrapBtn.title = 'Wrap in container';
+    wrapBtn.classList.add('btn-wrap');
+    wrapBtn.onclick = (e) => { e.stopPropagation(); showWrapMenu(wrapBtn, steps, index, onRebuild); };
+    actions.appendChild(wrapBtn);
+
+    if (unwrapFn) {
+        const unwrapBtn = document.createElement('button');
+        unwrapBtn.textContent = '⊠'; unwrapBtn.title = 'Unwrap — Inhalt einsetzen';
+        unwrapBtn.classList.add('btn-unwrap');
+        unwrapBtn.onclick = (e) => {
+            e.stopPropagation();
+            const inner = unwrapFn();
+            if (inner.length > 0) steps.splice(index, 1, ...inner);
+            else steps.splice(index, 1);
+            onRebuild(); pushToYaml();
+        };
+        actions.appendChild(unwrapBtn);
+    }
+
+    // ── Group 3: Delete ────────────────────────────────────────────────────
+    actions.appendChild(sep());
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '✕'; delBtn.title = 'Delete step';
+    delBtn.classList.add('btn-entity-header-delete');
+    delBtn.onclick = () => { steps.splice(index, 1); onRebuild(); pushToYaml(); };
     actions.appendChild(delBtn);
 }
 
@@ -1083,13 +1174,14 @@ function makeNode(typeClass, icon, title, stepObj = null) {
 
     node.innerHTML = `
         <div class="node-header">
-            <div class="node-header-title">
-                <span class="node-header-icon">${icon}</span>
-                <span>${title}</span>
+            <div class="node-header-left">
+                ${stepObj ? `<button class="btn-breakpoint ${bpClass}" title="Toggle Breakpoint" style="color: ${hasBp ? '#ff5555' : '#444'};">&#x23FA;</button>` : '<span class="node-header-bp-spacer"></span>'}
+                <div class="node-header-title">
+                    <span class="node-header-icon">${icon}</span>
+                    <span>${title}</span>
+                </div>
             </div>
-            <div class="node-header-actions">
-                ${stepObj ? `<button class="btn-breakpoint ${bpClass}" title="Toggle Breakpoint" style="margin-right: 5px; color: ${hasBp ? '#ff5555' : '#555'};">&#x23FA;</button>` : ''}
-            </div>
+            <div class="node-header-actions"></div>
         </div>
         <div class="node-body"></div>
     `;

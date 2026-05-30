@@ -14,6 +14,7 @@ let _scrollSyncHandler = null;
 let _extraEntities = [];
 let _lastColorByEntity = {};
 let _blockDragFired = false; // suppresses click-popover after a body drag
+let _loopOneMs = 0;          // single-iteration duration when loop active; 0 = no loop
 
 const ROW_H = 36;
 
@@ -22,6 +23,7 @@ const ROW_H = 36;
 export function initTimelineEditor(cmEditor) {
     _cmEditor = cmEditor;
     setupDelegatedListeners();
+    setupLoopButton();
 }
 
 export function syncYamlToTimeline(doc) {
@@ -30,6 +32,7 @@ export function syncYamlToTimeline(doc) {
     const { events, totalMs } = compileTimeline(doc);
     _totalMs = totalMs;
     renderTimeline(events, totalMs);
+    _updateLoopBtnLabel();
 }
 
 export function startTimelineCursor() {
@@ -48,7 +51,8 @@ export function setPlaybackTime(ms) {
     const cursor = document.getElementById('tl-cursor');
     const scrollArea = document.getElementById('tl-scroll-area');
     if (!cursor) return;
-    const left = ms * _scale;
+    const displayMs = _loopOneMs > 0 ? ms % _loopOneMs : ms;
+    const left = displayMs * _scale;
     cursor.style.left = left + 'px';
     cursor.style.display = 'block';
     if (scrollArea) {
@@ -493,6 +497,23 @@ function renderTimeline(events, totalMs) {
     const emptyState  = document.getElementById('tl-empty-state');
     if (!scrollArea || !entityCol || !ruler) return;
 
+    // ── Loop metrics ───────────────────────────────────────────────────────
+    // Timeline always shows a single iteration. The cursor wraps via _loopOneMs.
+    const loopWrapper = _detectLoopWrapper(getCurrentDoc()?.sequence || []);
+    let displayTotalMs = totalMs;
+    if (loopWrapper) {
+        const r = loopWrapper.repeat;
+        if (r.while === true) {
+            _loopOneMs = totalMs;          // compileTimeline returns 1 pass for while:true
+        } else {
+            const count = Math.max(1, r.count || 1);
+            _loopOneMs = count > 1 ? totalMs / count : totalMs;
+        }
+        displayTotalMs = _loopOneMs;       // ruler + rows show only one loop
+    } else {
+        _loopOneMs = 0;
+    }
+
     // Entity order: from YAML events + manually added extras
     const entityOrder = [], seen = new Set();
     events.forEach(ev => { if (!seen.has(ev.entityId)) { seen.add(ev.entityId); entityOrder.push(ev.entityId); } });
@@ -501,9 +522,9 @@ function renderTimeline(events, totalMs) {
     // Auto-fit scale only on first render (while _scale is still at default 0.1)
     const containerWidth = scrollArea.clientWidth || 600;
     if (_scale === 0.1) {
-        _scale = Math.max(0.005, Math.min(0.3, (containerWidth - 40) / Math.max(totalMs, 1)));
+        _scale = Math.max(0.005, Math.min(0.3, (containerWidth - 40) / Math.max(displayTotalMs, 1)));
     }
-    const totalPx = Math.max(containerWidth + 20, totalMs * _scale + 100);
+    const totalPx = Math.max(containerWidth + 20, displayTotalMs * _scale + 100);
 
     // Update last-color tracking for new-block defaults
     events.forEach(ev => { if (ev.color) _lastColorByEntity[ev.entityId] = ev.color; });
@@ -513,7 +534,7 @@ function renderTimeline(events, totalMs) {
     ruler.style.width = totalPx + 'px';
     const { major, minor, medium } = calculateTickInterval(_scale);
     const tickGcd = medium > 0 ? tickIntervalGcd(minor, medium) : minor;
-    for (let tMs = 0; tMs <= totalMs + major; tMs += tickGcd) {
+    for (let tMs = 0; tMs <= displayTotalMs + major; tMs += tickGcd) {
         const isMajor  = tMs % major === 0;
         const isMedium = !isMajor && medium > 0 && tMs % medium === 0;
         const isMinor  = !isMajor && !isMedium && tMs % minor === 0;
@@ -770,22 +791,6 @@ function buildBlockElement(event) {
         badge.className = 'tl-block-badge';
         badge.textContent = '?';
         holdEl.appendChild(badge);
-    }
-
-    // Repeat group badge (first event in group only)
-    if (event.repeatGroup && event._isFirstInGroup) {
-        const rb = document.createElement('div');
-        rb.className = 'tl-block-badge';
-        rb.textContent = event.repeatGroup.count;
-        rb.style.right = event.hasCondition ? '28px' : '10px';
-        rb.style.color = 'rgba(139,233,253,0.9)';
-        holdEl.appendChild(rb);
-    }
-
-    // Repeat group: dashed border
-    if (event.repeatGroup) {
-        block.style.borderStyle = 'dashed';
-        block.style.borderColor = 'rgba(139,233,253,0.55)';
     }
 
     // ── Left handle (move left edge, extends transition left) ──────────────
@@ -1264,11 +1269,15 @@ function createNewBlock(entityId, startMs, color, brightness, transition) {
 // Inserts a leading gap delay if targetMs > current branch end time.
 // Creates a new parallel block (or new branch) if none exists.
 function appendBlockToBranch(seq, entityId, targetMs, stepsToInsert) {
+    // When loop mode is active, operate on the inner sequence inside the repeat wrapper
+    const loopWrapper = _detectLoopWrapper(seq);
+    const workSeq = loopWrapper ? (loopWrapper.repeat.sequence || []) : seq;
+
     // Find (or create) the top-level parallel step
-    let parallelStep = seq.find(s => detectStepType(s) === 'parallel');
+    let parallelStep = workSeq.find(s => detectStepType(s) === 'parallel');
     if (!parallelStep) {
         parallelStep = { parallel: [] };
-        seq.push(parallelStep);
+        workSeq.push(parallelStep);
     }
 
     // Find entity's branch
@@ -1415,7 +1424,9 @@ function insertAtMs(seq, targetMs, stepsToInsert, entityId) {
 // In the always-parallel model: new blocks append to the entity's branch end,
 // or at targetMs if targetMs is past the branch end.
 function resolveInsertMs(seq, targetMs, entityId) {
-    for (const step of seq) {
+    const loopWrapper = _detectLoopWrapper(seq);
+    const workSeq = loopWrapper ? (loopWrapper.repeat.sequence || []) : seq;
+    for (const step of workSeq) {
         if (detectStepType(step) === 'parallel') {
             const branchSeq = findEntityBranch(step.parallel, entityId);
             if (branchSeq) {
@@ -1462,20 +1473,138 @@ function pushTimelineToYaml() {
 
 // ─── Parallel Normalization ────────────────────────────────────────────────────
 
+// Detects the timeline-managed repeat wrapper:
+//   [ { repeat: { count|while: X, sequence: [{ parallel: [...] }] } } ]
+// Returns the repeat step or null.
+function _detectLoopWrapper(seq) {
+    if (!Array.isArray(seq) || seq.length !== 1) return null;
+    const step = seq[0];
+    if (detectStepType(step) !== 'repeat') return null;
+    const inner = step.repeat?.sequence || [];
+    if (inner.length !== 1 || detectStepType(inner[0]) !== 'parallel') return null;
+    return step;
+}
+
 function normalizeParallel(doc) {
     const seq = doc.sequence || [];
-    const hasComplex = seq.some(s => {
+
+    // If there's a timeline-managed loop wrapper, work on the inner sequence.
+    const loopWrapper = _detectLoopWrapper(seq);
+    const workSeq = loopWrapper ? (loopWrapper.repeat.sequence || []) : seq;
+
+    const hasComplex = workSeq.some(s => {
         const t = detectStepType(s);
         return t === 'repeat' || t === 'choose' || t === 'if';
     });
     if (hasComplex) return;
 
-    const { events } = compileTimeline(doc);
+    // Compile the inner sequence (via temporary doc so repeat group isn't set)
+    const tempDoc = { sequence: workSeq };
+    const { events } = compileTimeline(tempDoc);
     if (events.length === 0) return;
     const normalEvents = events.filter(ev => !ev.repeatGroup && !ev.hasCondition);
     if (normalEvents.length === 0) return;
 
-    doc.sequence = rebuildAsAlwaysParallel(normalEvents);
+    const newParallel = rebuildAsAlwaysParallel(normalEvents);
+
+    if (loopWrapper) {
+        loopWrapper.repeat.sequence = newParallel;
+    } else {
+        doc.sequence = newParallel;
+    }
+}
+
+// ─── Loop Mode ────────────────────────────────────────────────────────────────
+
+function _setLoopMode(enabled, count, infinite) {
+    const doc = getCurrentDoc();
+    if (!doc) return;
+    const loopWrapper = _detectLoopWrapper(doc.sequence || []);
+    if (enabled) {
+        const innerSeq = loopWrapper ? (loopWrapper.repeat.sequence || []) : (doc.sequence || []).slice();
+        const repeatDef = infinite ? { while: true } : { count: Math.max(2, count || 2) };
+        repeatDef.sequence = innerSeq;
+        doc.sequence = [{ repeat: repeatDef }];
+    } else if (loopWrapper) {
+        doc.sequence = loopWrapper.repeat.sequence || [];
+    }
+    pushTimelineToYaml();
+}
+
+function _updateLoopBtnLabel() {
+    const btn      = document.getElementById('tl-loop-btn');
+    const minusBtn = document.getElementById('tl-loop-minus');
+    const countIn  = document.getElementById('tl-loop-count');
+    const plusBtn  = document.getElementById('tl-loop-plus');
+    const infBtn   = document.getElementById('tl-loop-inf');
+    if (!btn) return;
+    const wrapper = _detectLoopWrapper(getCurrentDoc()?.sequence || []);
+    if (wrapper) {
+        const isInf = wrapper.repeat.while === true;
+        btn.classList.add('active');
+        btn.title = 'Loop an — klicken zum Deaktivieren';
+        if (countIn) { countIn.value = wrapper.repeat.count ?? 2; }
+        const countDisabled = isInf;
+        if (minusBtn) minusBtn.disabled = countDisabled;
+        if (countIn)  countIn.disabled  = countDisabled;
+        if (plusBtn)  plusBtn.disabled  = countDisabled;
+        if (infBtn)   { infBtn.disabled = false; infBtn.classList.toggle('active', isInf); }
+    } else {
+        btn.classList.remove('active');
+        btn.title = 'Loop aktivieren';
+        if (minusBtn) minusBtn.disabled = true;
+        if (countIn)  { countIn.disabled = true; countIn.value = 2; }
+        if (plusBtn)  plusBtn.disabled  = true;
+        if (infBtn)   { infBtn.disabled = true; infBtn.classList.remove('active'); }
+    }
+}
+
+function setupLoopButton() {
+    const btn      = document.getElementById('tl-loop-btn');
+    const minusBtn = document.getElementById('tl-loop-minus');
+    const countIn  = document.getElementById('tl-loop-count');
+    const plusBtn  = document.getElementById('tl-loop-plus');
+    const infBtn   = document.getElementById('tl-loop-inf');
+    if (!btn) return;
+
+    const getCount = () => Math.max(2, parseInt(countIn?.value) || 2);
+
+    btn.addEventListener('click', () => {
+        const isActive = !!_detectLoopWrapper(getCurrentDoc()?.sequence || []);
+        _setLoopMode(!isActive, getCount(), false);
+        _updateLoopBtnLabel();
+    });
+
+    minusBtn?.addEventListener('click', () => {
+        if (!_detectLoopWrapper(getCurrentDoc()?.sequence || [])) return;
+        const next = Math.max(2, getCount() - 1);
+        if (countIn) countIn.value = next;
+        _setLoopMode(true, next, false);
+        _updateLoopBtnLabel();
+    });
+
+    plusBtn?.addEventListener('click', () => {
+        if (!_detectLoopWrapper(getCurrentDoc()?.sequence || [])) return;
+        const next = Math.min(999, getCount() + 1);
+        if (countIn) countIn.value = next;
+        _setLoopMode(true, next, false);
+        _updateLoopBtnLabel();
+    });
+
+    countIn?.addEventListener('change', () => {
+        if (_detectLoopWrapper(getCurrentDoc()?.sequence || [])) {
+            _setLoopMode(true, getCount(), false);
+            _updateLoopBtnLabel();
+        }
+    });
+
+    infBtn?.addEventListener('click', () => {
+        const wrapper = _detectLoopWrapper(getCurrentDoc()?.sequence || []);
+        if (!wrapper) return;
+        const isInf = wrapper.repeat.while === true;
+        _setLoopMode(true, getCount(), !isInf);
+        _updateLoopBtnLabel();
+    });
 }
 
 // Rebuilds sequence as always-parallel: one branch per entity, all in a single parallel block.

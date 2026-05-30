@@ -133,11 +133,11 @@
                     <div id="tl-container">
                         <div id="tl-header-row">
                             <div id="tl-corner">
-                                <div id="tl-zoom-controls">
-                                    <button class="tl-zoom-btn" id="tl-zoom-out" title="Zoom out (Ctrl+Scroll)">−</button>
-                                    <span id="tl-zoom-label">—</span>
-                                    <button class="tl-zoom-btn" id="tl-zoom-in" title="Zoom in (Ctrl+Scroll)">+</button>
-                                </div>
+                                <button id="tl-loop-btn" class="tl-loop-btn" title="Loop aktivieren">↺</button>
+                                <button id="tl-loop-minus" class="tl-loop-step-btn" title="Weniger Loops" disabled>−</button>
+                                <input id="tl-loop-count" type="number" class="tl-loop-count-inline" min="2" max="999" value="2" title="Loop count" disabled>
+                                <button id="tl-loop-plus" class="tl-loop-step-btn" title="Mehr Loops" disabled>+</button>
+                                <button id="tl-loop-inf" class="tl-loop-inf-btn" title="Endlos loopen" disabled>∞</button>
                             </div>
                             <div id="tl-ruler-scroll"><div id="tl-ruler"></div></div>
                         </div>
@@ -150,6 +150,11 @@
                             <div id="tl-hscroll"><div id="tl-hscroll-inner"></div></div>
                         </div>
                         <div id="tl-empty-state" data-i18n="tl_no_entities">Keine Entitäten im Skript gefunden.</div>
+                        <div id="tl-zoom-toolbar">
+                            <button id="tl-zoom-out" title="Zoom out (Ctrl+Scroll)">−</button>
+                            <span id="tl-zoom-label">—</span>
+                            <button id="tl-zoom-in" title="Zoom in (Ctrl+Scroll)">+</button>
+                        </div>
                     </div>
                 </div>
             </div>

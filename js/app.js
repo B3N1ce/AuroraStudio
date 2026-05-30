@@ -10,6 +10,8 @@ import { resolveTemplate } from './templateEngine.js';
 
 let isPlaying = false;
 let isPausedState = false;
+let _simMinRunTimer = null;
+const SIM_MIN_RUN_MS = 500;
 let editor;
 let colorPicker;
 let activeLineHandle = null;
@@ -22,16 +24,16 @@ const btnColorCurve = document.getElementById('btn-color-curve');
 const btnCopyCode = document.getElementById('btn-copy-code');
 
 const COLOR_CURVE_ICONS = {
-    linear:  `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="12" x2="12" y2="2"/></svg>`,
+    linear: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="12" x2="12" y2="2"/></svg>`,
     gamma22: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12 C5 12 9 2 12 2"/></svg>`,
     gamma28: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12 C2 10 3 2 12 2"/></svg>`,
-    cie:     `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 7 C3 3 11 3 13 7 C11 11 3 11 1 7 Z"/><circle cx="7" cy="7" r="2"/></svg>`,
+    cie: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 7 C3 3 11 3 13 7 C11 11 3 11 1 7 Z"/><circle cx="7" cy="7" r="2"/></svg>`,
 };
 const BLEND_MODE_ICONS = {
     'multiply-glow': `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="2.5"/><line x1="7" y1="1" x2="7" y2="3.5"/><line x1="7" y1="10.5" x2="7" y2="13"/><line x1="1" y1="7" x2="3.5" y2="7"/><line x1="10.5" y1="7" x2="13" y2="7"/><line x1="3" y1="3" x2="4.2" y2="4.2"/><line x1="9.8" y1="9.8" x2="11" y2="11"/><line x1="11" y1="3" x2="9.8" y2="4.2"/><line x1="4.2" y1="9.8" x2="3" y2="11"/></svg>`,
-    'multiply':      `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="7" r="3.5"/><circle cx="9" cy="7" r="3.5"/></svg>`,
-    'overlay':       `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="4" width="8" height="7" rx="1"/><rect x="5" y="2" width="8" height="7" rx="1"/></svg>`,
-    'color-dodge':   `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 1 L8.3 5.5 L13 7 L8.3 8.5 L7 13 L5.7 8.5 L1 7 L5.7 5.5 Z"/></svg>`,
+    'multiply': `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="7" r="3.5"/><circle cx="9" cy="7" r="3.5"/></svg>`,
+    'overlay': `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="4" width="8" height="7" rx="1"/><rect x="5" y="2" width="8" height="7" rx="1"/></svg>`,
+    'color-dodge': `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 1 L8.3 5.5 L13 7 L8.3 8.5 L7 13 L5.7 8.5 L1 7 L5.7 5.5 Z"/></svg>`,
 };
 
 function setColorCurveUI(val) {
@@ -99,10 +101,10 @@ let colorMarks = [];
 function updateColorPreviews(cm) {
     colorMarks.forEach(m => m.clear());
     colorMarks = [];
-    
+
     const doc = cm.getDoc();
     const rgbRegex = /\[\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\]/g;
-    
+
     for (let i = 0; i < doc.lineCount(); i++) {
         const text = doc.getLine(i);
         let match;
@@ -122,8 +124,8 @@ function updateColorPreviews(cm) {
                 marker.style.borderRadius = '2px';
                 marker.style.boxShadow = '0 0 2px rgba(0,0,0,0.5)';
                 marker.title = `RGB: ${r}, ${g}, ${b}`;
-                
-                const mark = doc.setBookmark({line: i, ch: match.index}, {
+
+                const mark = doc.setBookmark({ line: i, ch: match.index }, {
                     widget: marker,
                     insertLeft: true
                 });
@@ -194,13 +196,13 @@ function init() {
             validateAndSync();
         }
     });
-    
+
     // Initial call
     updateColorPreviews(editor);
 
     editor.on("gutterClick", (cm, n) => {
         const result = mapLineToPath(cm, n);
-        
+
         if (!result || !result.path) {
             showToast("Kein gültiger Breakpoint-Schritt gefunden.", "warning");
             return;
@@ -208,77 +210,77 @@ function init() {
 
         toggleBreakpoint(result.path);
         refreshBreakpointMarkers();
-        
+
         // Push the state to node editor to update its buttons visually
         syncYamlToNodes();
     });
 
-        // Template Resolution Hover & Gutter Highlighting
-        document.addEventListener('mousemove', (e) => {
-            // Only if YAML view is active
-            const yamlView = document.getElementById('view-yaml');
-            if (!yamlView || !yamlView.classList.contains('active')) return;
+    // Template Resolution Hover & Gutter Highlighting
+    document.addEventListener('mousemove', (e) => {
+        // Only if YAML view is active
+        const yamlView = document.getElementById('view-yaml');
+        if (!yamlView || !yamlView.classList.contains('active')) return;
 
-            // Clear all previous force-hovers
-            document.querySelectorAll('.breakpoint-hint.force-hover').forEach(el => el.classList.remove('force-hover'));
+        // Clear all previous force-hovers
+        document.querySelectorAll('.breakpoint-hint.force-hover').forEach(el => el.classList.remove('force-hover'));
 
-            const tooltip = document.getElementById('template-tooltip');
-            if (!tooltip) return;
+        const tooltip = document.getElementById('template-tooltip');
+        if (!tooltip) return;
 
-            const vars = getCurrentRuntimeVars() || {};
+        const vars = getCurrentRuntimeVars() || {};
 
-            // Check if mouse is over the editor
-            const wrapper = editor.getWrapperElement();
-            const rect = wrapper.getBoundingClientRect();
-            if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
-                tooltip.style.display = 'none';
-                return;
-            }
-
-            const pos = editor.coordsChar({left: e.clientX, top: e.clientY}, "window");
-            
-            // 1. Gutter Parent Highlighting
-            const mapResult = mapLineToPath(editor, pos.line);
-            if (mapResult && mapResult.line !== undefined) {
-                const info = editor.lineInfo(mapResult.line);
-                if (info && info.gutterMarkers && info.gutterMarkers.breakpoints) {
-                    info.gutterMarkers.breakpoints.classList.add('force-hover');
-                }
-            }
-
-            // 2. Tooltip Logic
-            const line = editor.getLine(pos.line);
-            if (line && line.includes('{{')) {
-                const regex = /\{\{.*?\}\}/g;
-                let match;
-                let found = false;
-                while ((match = regex.exec(line)) !== null) {
-                    if (pos.ch >= match.index && pos.ch <= match.index + match[0].length) {
-                        try {
-                            const resolved = resolveTemplate(match[0], vars);
-                            let repeatText = "";
-                            if (vars.repeat) {
-                                const idx = (vars.repeat.index !== undefined) ? (vars.repeat.index + 1) : "?";
-                                repeatText = `[Iter: ${idx}] `;
-                            }
-
-                            if (String(resolved) !== String(match[0])) {
-                                tooltip.textContent = `↳ ${repeatText}${typeof resolved === 'object' ? JSON.stringify(resolved) : String(resolved)}`;
-                            } else {
-                                tooltip.textContent = `↳ ${repeatText}(Vorschau: Keine Laufzeitdaten)`;
-                            }
-                            tooltip.style.display = 'block';
-                            tooltip.style.left = (e.clientX + 15) + 'px';
-                            tooltip.style.top = (e.clientY + 15) + 'px';
-                            found = true;
-                            break;
-                        } catch(err) {}
-                    }
-                }
-                if (found) return;
-            }
+        // Check if mouse is over the editor
+        const wrapper = editor.getWrapperElement();
+        const rect = wrapper.getBoundingClientRect();
+        if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
             tooltip.style.display = 'none';
-        });
+            return;
+        }
+
+        const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, "window");
+
+        // 1. Gutter Parent Highlighting
+        const mapResult = mapLineToPath(editor, pos.line);
+        if (mapResult && mapResult.line !== undefined) {
+            const info = editor.lineInfo(mapResult.line);
+            if (info && info.gutterMarkers && info.gutterMarkers.breakpoints) {
+                info.gutterMarkers.breakpoints.classList.add('force-hover');
+            }
+        }
+
+        // 2. Tooltip Logic
+        const line = editor.getLine(pos.line);
+        if (line && line.includes('{{')) {
+            const regex = /\{\{.*?\}\}/g;
+            let match;
+            let found = false;
+            while ((match = regex.exec(line)) !== null) {
+                if (pos.ch >= match.index && pos.ch <= match.index + match[0].length) {
+                    try {
+                        const resolved = resolveTemplate(match[0], vars);
+                        let repeatText = "";
+                        if (vars.repeat) {
+                            const idx = (vars.repeat.index !== undefined) ? (vars.repeat.index + 1) : "?";
+                            repeatText = `[Iter: ${idx}] `;
+                        }
+
+                        if (String(resolved) !== String(match[0])) {
+                            tooltip.textContent = `↳ ${repeatText}${typeof resolved === 'object' ? JSON.stringify(resolved) : String(resolved)}`;
+                        } else {
+                            tooltip.textContent = `↳ ${repeatText}(Vorschau: Keine Laufzeitdaten)`;
+                        }
+                        tooltip.style.display = 'block';
+                        tooltip.style.left = (e.clientX + 15) + 'px';
+                        tooltip.style.top = (e.clientY + 15) + 'px';
+                        found = true;
+                        break;
+                    } catch (err) { }
+                }
+            }
+            if (found) return;
+        }
+        tooltip.style.display = 'none';
+    });
 
     // Tab switching
     document.querySelectorAll('#panel-editor .panel-tab').forEach(tab => {
@@ -322,7 +324,7 @@ function init() {
     if (window.innerWidth > 900) {
         const savedLayout = localStorage.getItem('ha_simulator_layout');
         appContainer.style.gridTemplateColumns = savedLayout || "350px 8px 1fr 8px 320px";
-        
+
         // WICHTIG: Canvas nach Layout-Wiederherstellung neu berechnen
         setTimeout(resetSimView, 50);
     }
@@ -443,26 +445,26 @@ function init() {
         newScriptMenu.querySelectorAll('.dropdown-item').forEach(item => {
             item.addEventListener('click', () => {
                 const action = item.dataset.action;
-                
+
                 if (action === 'scratch' || action === 'template') {
                     let content = "";
                     if (action === 'scratch') {
                         content = `alias: New Animation\ndescription: "Clean slate"\nmode: single\nsequence:\n  - `;
                     } else {
-                        content = `alias: New Animation\ndescription: "A fresh start"\nmode: single\nsequence:\n  - service: light.turn_on\n    target:\n      entity_id: light.living_room\n    data:\n      rgb_color: [255, 255, 255]\n      brightness_pct: 100`;
+                        content = `alias: New Animation\ndescription: "A fresh start"\nmode: single\nsequence:\n  - service: light.turn_on\n    target:\n      entity_id: light.living_room\n    data:\n      rgb_color: [255, 230, 200]\n      brightness_pct: 100`;
                     }
 
                     // Editor leeren und Template setzen
                     editor.setValue(content);
-                    
+
                     // Lokalen Speicher bereinigen
                     localStorage.setItem('ha_animation_script', content);
                     localStorage.removeItem('ha_simulator_breakpoints');
-                    
+
                     // Simulator State resetten
                     if (breakpoints) breakpoints.clear();
                     refreshBreakpointMarkers();
-                    
+
                     // UI Sync
                     if (typeof validateAndSync === 'function') validateAndSync();
                     const activeTab = document.querySelector('#panel-editor .panel-tab.active');
@@ -472,7 +474,7 @@ function init() {
 
                     showToast(t('new_script_created') || "Neues Skript erstellt", "success");
                 }
-                
+
                 newScriptMenu.classList.remove('active');
             });
         });
@@ -483,7 +485,7 @@ function init() {
         isPlaying = running;
         isPausedState = paused;
         editor.setOption('readOnly', running);
-        
+
         if (running) document.body.classList.add('simulation-running');
         else document.body.classList.remove('simulation-running');
 
@@ -547,15 +549,22 @@ function init() {
         const _atSim = document.querySelector('#panel-editor .panel-tab.active');
         if (_atSim && _atSim.dataset.tab === 'timeline') startTimelineCursor();
 
+        const _simStart = Date.now();
         startSimulation(doc, () => {
-            setUIRunning(false, false);
+            const delay = Math.max(0, SIM_MIN_RUN_MS - (Date.now() - _simStart));
+            _simMinRunTimer = setTimeout(() => {
+                _simMinRunTimer = null;
+                setUIRunning(false, false);
+            }, delay);
         }, (err) => {
+            if (_simMinRunTimer) { clearTimeout(_simMinRunTimer); _simMinRunTimer = null; }
             showToast(t('script_error') + err.message, 'error');
             setUIRunning(false, false);
         });
     });
 
     stopBtn.addEventListener('click', () => {
+        if (_simMinRunTimer) { clearTimeout(_simMinRunTimer); _simMinRunTimer = null; }
         if (isPlaying || isPausedState) {
             stopSimulation();
             setUIRunning(false, false);
@@ -564,7 +573,7 @@ function init() {
         } else {
             resetLamps();
             resetRuntimeVariablesUI();
-            setUIRunning(false, false); // Update Button State
+            setUIRunning(false, false);
         }
     });
 
@@ -740,11 +749,11 @@ function init() {
 
     const BG_MODE_ICONS = {
         'backgrounds/living_room.png': `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2 L12 6 L12 12 L2 12 L2 6 Z"/><path d="M5 12 L5 9 L9 9 L9 12"/></svg>`,
-        'backgrounds/bedroom.png':     `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="1" y="7" width="12" height="5" rx="1"/><path d="M1 9 L13 9"/><path d="M7 7 L7 9"/><circle cx="4" cy="5" r="1.5"/></svg>`,
-        'backgrounds/office.png':      `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="1" y="2" width="12" height="8" rx="1"/><path d="M4 10 L4 12 M10 10 L10 12 M3 12 L11 12"/></svg>`,
+        'backgrounds/bedroom.png': `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="1" y="7" width="12" height="5" rx="1"/><path d="M1 9 L13 9"/><path d="M7 7 L7 9"/><circle cx="4" cy="5" r="1.5"/></svg>`,
+        'backgrounds/office.png': `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="1" y="2" width="12" height="8" rx="1"/><path d="M4 10 L4 12 M10 10 L10 12 M3 12 L11 12"/></svg>`,
         'backgrounds/lightstudio.png': `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="5" r="3"/><path d="M5 8 Q5 10 7 10 Q9 10 9 8"/><line x1="5.5" y1="10" x2="8.5" y2="10"/><line x1="6" y1="11.5" x2="8" y2="11.5"/></svg>`,
         upload: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9 L7 2"/><path d="M4 5 L7 2 L10 5"/><path d="M2 11 L2 13 L12 13 L12 11"/></svg>`,
-        reset:  `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="10" height="10" rx="1.5"/></svg>`,
+        reset: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="10" height="10" rx="1.5"/></svg>`,
     };
 
     function setBgUI(url) {
@@ -780,7 +789,7 @@ function init() {
             item.addEventListener('click', () => {
                 const action = item.dataset.action;
                 const bgUrl = item.dataset.bg;
-                
+
                 if (bgUrl) {
                     setBackgroundImage(bgUrl);
                     bgDropdownMenu.classList.remove('active');
@@ -804,7 +813,7 @@ function init() {
                 reader.readAsDataURL(file);
             }
         });
-        
+
         // Restore from localStorage
         const savedBg = localStorage.getItem('ha_simulator_bg');
         if (savedBg) {
@@ -851,9 +860,9 @@ function init() {
         if (fpsEl) fpsEl.textContent = s.rendering ? `${s.fps}` : '—';
         if (dotEl) {
             const col = !s.rendering ? '#444'
-                      : s.fps >= 55  ? '#50fa7b'
-                      : s.fps >= 30  ? '#f1fa8c'
-                      :                '#ff5555';
+                : s.fps >= 55 ? '#50fa7b'
+                    : s.fps >= 30 ? '#f1fa8c'
+                        : '#ff5555';
             dotEl.style.color = col;
         }
 
@@ -942,7 +951,7 @@ function validateAndSync() {
 
         // Update Global Variable Panel with full discovery
         updateVariablePanel(doc);
-        
+
         // Update Breakpoint Markers in YAML Gutter
         refreshBreakpointMarkers();
 
@@ -1005,7 +1014,7 @@ function mapLineToPath(cm, startLine) {
     }
 
     if (!m) return { path: null, line: startLine };
-    
+
     let occurrence = 0;
     for (let i = 0; i <= targetLine; i++) {
         const l = cm.getLine(i);
@@ -1014,10 +1023,10 @@ function mapLineToPath(cm, startLine) {
             occurrence++;
         }
     }
-    
+
     let currentOccurrence = 0;
     let foundPath = null;
-    
+
     function traverse(obj) {
         if (!obj || typeof obj !== 'object' || foundPath) return;
         if (Array.isArray(obj)) {
@@ -1033,7 +1042,7 @@ function mapLineToPath(cm, startLine) {
             Object.values(obj).forEach(traverse);
         }
     }
-    
+
     traverse(getCurrentDoc());
     return { path: foundPath, line: targetLine };
 }
@@ -1071,15 +1080,15 @@ function highlightLineByPath(path) {
         editor.removeLineClass(activeLineHandle, "background", "cm-active-step-line");
         activeLineHandle = null;
     }
-    
+
     if (!path) return;
-    
+
     const lineCount = editor.lineCount();
     for (let i = 0; i < lineCount; i++) {
         const result = mapLineToPath(editor, i);
         if (result && result.path === path) {
             activeLineHandle = editor.addLineClass(i, "background", "cm-active-step-line");
-            editor.scrollIntoView({line: i, ch: 0}, 200);
+            editor.scrollIntoView({ line: i, ch: 0 }, 200);
             break;
         }
     }

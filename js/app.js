@@ -12,6 +12,7 @@ let isPlaying = false;
 let isPausedState = false;
 let _simMinRunTimer = null;
 const SIM_MIN_RUN_MS = 500;
+const _tooltipCache = new Map(); // caches resolved random-template values during a simulation run
 let editor;
 let colorPicker;
 let activeLineHandle = null;
@@ -215,6 +216,25 @@ function init() {
         syncYamlToNodes();
     });
 
+    function resolveTemplateForTooltip(templateStr, vars) {
+        if (!/\|\s*random/.test(templateStr)) {
+            return resolveTemplate(templateStr, vars);
+        }
+        if (!isSimRunning()) {
+            // Show what the possible values are instead of picking one
+            const listMatch = templateStr.match(/\{\{\s*(\[[\s\S]*?\])\s*\|\s*random\s*\}\}/);
+            if (listMatch) return `Zufällig aus: ${listMatch[1]}`;
+            const rangeMatch = templateStr.match(/\{\{\s*range\((\d+),\s*(\d+)\)\s*\|\s*random\s*\}\}/);
+            if (rangeMatch) return `Zufällig: ${rangeMatch[1]}–${parseInt(rangeMatch[2]) - 1}`;
+            return '(Zufallswert)';
+        }
+        // During simulation: evaluate once and cache so the value stays stable
+        if (!_tooltipCache.has(templateStr)) {
+            _tooltipCache.set(templateStr, resolveTemplate(templateStr, vars));
+        }
+        return _tooltipCache.get(templateStr);
+    }
+
     // Template Resolution Hover & Gutter Highlighting
     document.addEventListener('mousemove', (e) => {
         // Only if YAML view is active
@@ -257,7 +277,7 @@ function init() {
             while ((match = regex.exec(line)) !== null) {
                 if (pos.ch >= match.index && pos.ch <= match.index + match[0].length) {
                     try {
-                        const resolved = resolveTemplate(match[0], vars);
+                        const resolved = resolveTemplateForTooltip(match[0], vars);
                         let repeatText = "";
                         if (vars.repeat) {
                             const idx = (vars.repeat.index !== undefined) ? (vars.repeat.index + 1) : "?";
@@ -690,6 +710,7 @@ function init() {
         const _atSim = document.querySelector('#panel-editor .panel-tab.active');
         if (_atSim && _atSim.dataset.tab === 'timeline') startTimelineCursor();
 
+        _tooltipCache.clear();
         const _simStart = Date.now();
         startSimulation(doc, () => {
             const delay = Math.max(0, SIM_MIN_RUN_MS - (Date.now() - _simStart));

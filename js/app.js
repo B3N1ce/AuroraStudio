@@ -7,6 +7,7 @@ import { initTimelineEditor, syncYamlToTimeline, startTimelineCursor, resetTimel
 import { t, setLang, getLang, applyTranslations } from './i18n.js';
 import { initNodeEditor, syncYamlToNodes, updateVariablePanel, updateRuntimeVariablesUI, resetRuntimeVariablesUI, getCurrentRuntimeVars, getCurrentDoc, assignPaths, setCurrentDoc, highlightExecutingNode } from './nodeEditor.js';
 import { resolveTemplate } from './templateEngine.js';
+import { initLibraryPanel } from './libraryPanel.js';
 
 let isPlaying = false;
 let isPausedState = false;
@@ -188,6 +189,14 @@ function init() {
     // 3b. Init Timeline Editor
     initTimelineEditor(editor);
 
+    // 3c. Init Library Panel
+    initLibraryPanel({
+        getEditorValue: () => editor.getValue(),
+        setEditorValue: (v) => { editor.setValue(v); localStorage.setItem('ha_animation_script', v); },
+        validateAndSync,
+        isPlaying: () => isPlaying,
+    });
+
     // 4. Set Runtime Variable Callback
     setVarUpdateCallback(updateRuntimeVariablesUI);
 
@@ -322,6 +331,11 @@ function init() {
             } else if (tab.dataset.tab === 'timeline') {
                 const _tlDoc = getCurrentDoc();
                 if (_tlDoc) syncYamlToTimeline(_tlDoc);
+            } else if (tab.dataset.tab === 'library') {
+                // Re-draw canvases now that the view has layout width
+                document.querySelectorAll('#library-grid .lib-mini-timeline').forEach(canvas => {
+                    canvas.dispatchEvent(new CustomEvent('lib-redraw'));
+                });
             }
         });
     });

@@ -355,7 +355,7 @@ function startBlockBodyDrag(e, block) {
 
 // ─── YAML → Timeline Compilation ──────────────────────────────────────────────
 
-function compileTimeline(doc) {
+export function compileTimeline(doc) {
     const events = [];
 
     function walkSequence(steps, startMs, repeatGroup, hasCondition) {
@@ -1476,7 +1476,7 @@ function pushTimelineToYaml() {
 // Detects the timeline-managed repeat wrapper:
 //   [ { repeat: { count|while: X, sequence: [{ parallel: [...] }] } } ]
 // Returns the repeat step or null.
-function _detectLoopWrapper(seq) {
+export function _detectLoopWrapper(seq) {
     if (!Array.isArray(seq) || seq.length !== 1) return null;
     const step = seq[0];
     if (detectStepType(step) !== 'repeat') return null;

@@ -2,6 +2,8 @@
 // Skript-Bibliothek: Slots zum Speichern und Laden eigener Animationen.
 
 import { compileTimeline, _detectLoopWrapper } from './timelineEditor.js';
+import { resolveTemplate } from './templateEngine.js';
+import { t } from './i18n.js';
 
 const LS_KEY = 'ha_library_slots';
 
@@ -43,18 +45,77 @@ function rgbToHex([r, g, b]) {
     return '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
 }
 
-function extractMeta(yaml) {
+
+// Resolve a sequence in-place with a per-branch variable scope.
+// Each parallel branch gets its own COPY of the current scope so variable
+// assignments in one branch don't bleed into sibling branches.
+function resolveSeqWithScope(steps, parentVars) {
+    const cloned = JSON.parse(JSON.stringify(steps));
+    const vars = Object.assign({}, parentVars);
+
+    for (const step of cloned) {
+        if (!step || typeof step !== 'object') continue;
+
+        // variables: step — resolve values into the local scope
+        if (step.variables) {
+            for (const [k, v] of Object.entries(step.variables)) {
+                try { vars[k] = resolveTemplate(v, vars); step.variables[k] = vars[k]; } catch {}
+            }
+        }
+
+        // action data / delay — resolve with current scope
+        if (step.data)  try { step.data  = resolveTemplate(step.data,  vars); } catch {}
+        if (step.delay !== undefined) try { step.delay = resolveTemplate(step.delay, vars); } catch {}
+
+        // parallel — each branch gets an independent copy of the current scope
+        if (step.parallel) {
+            step.parallel = (Array.isArray(step.parallel) ? step.parallel : []).map(b => {
+                if (Array.isArray(b))  return resolveSeqWithScope(b, vars);
+                if (b.sequence)        return { ...b, sequence: resolveSeqWithScope(b.sequence, vars) };
+                // bare step (e.g. { repeat: {...} }) — wrap, resolve, unwrap
+                return resolveSeqWithScope([b], vars)[0] ?? b;
+            });
+        }
+
+        if (Array.isArray(step.sequence)) step.sequence = resolveSeqWithScope(step.sequence, vars);
+
+        if (step.repeat?.sequence) {
+            step.repeat = { ...step.repeat, sequence: resolveSeqWithScope(step.repeat.sequence, vars) };
+            try { if (step.repeat.count !== undefined) step.repeat.count = resolveTemplate(step.repeat.count, vars); } catch {}
+        }
+
+        if (Array.isArray(step.choose)) {
+            step.choose = step.choose.map(c => ({
+                ...c,
+                ...(c.sequence && { sequence: resolveSeqWithScope(c.sequence, vars) }),
+                ...(c.default  && { default:  resolveSeqWithScope(c.default,  vars) }),
+            }));
+        }
+    }
+    return cloned;
+}
+
+function buildSnapshot(yaml) {
     let doc;
     try { doc = jsyaml.load(yaml); } catch { return null; }
-    let events = [], totalMs = 0;
-    try { ({ events, totalMs } = compileTimeline(doc)); } catch { return null; }
+
+    // Resolve each parallel branch with its own variable scope
+    const topVars = Object.assign({}, doc.variables || {});
+    let resolvedSeq;
+    try { resolvedSeq = resolveSeqWithScope(doc.sequence || [], topVars); }
+    catch { resolvedSeq = doc.sequence || []; }
+
+    const resolvedDoc = { ...doc, sequence: resolvedSeq };
+
+    let events, totalMs;
+    try { ({ events, totalMs } = compileTimeline(resolvedDoc)); } catch { return null; }
+
     const loopWrapper = _detectLoopWrapper(doc.sequence || []);
     const entityIds = new Set(events.map(e => e.entityId).filter(Boolean));
+
     return {
         totalMs,
-        loop: loopWrapper
-            ? (loopWrapper.repeat.while ? '∞' : `${loopWrapper.repeat.count}×`)
-            : null,
+        loop: loopWrapper ? (loopWrapper.repeat.while ? '∞' : `${loopWrapper.repeat.count}×`) : null,
         entityCount: entityIds.size,
         hasVars: !!(doc.variables && Object.keys(doc.variables).length),
         hasJinja: yaml.includes('{{') && yaml.includes('}}'),
@@ -64,7 +125,7 @@ function extractMeta(yaml) {
 
 function renderMiniTimeline(canvas, yaml) {
     const W = canvas.offsetWidth || 260;
-    const meta = extractMeta(yaml);
+    const meta = buildSnapshot(yaml);
 
     if (!meta || meta.events.length === 0 || meta.totalMs === 0) {
         canvas.width  = W;
@@ -101,18 +162,23 @@ function renderMiniTimeline(canvas, yaml) {
 
         for (const ev of byEntity.get(entityId)) {
             if (ev.isOff || !ev.color) continue;
-            const x = (ev.startMs / meta.totalMs) * W;
-            const w = Math.max(2, (ev.durationMs / meta.totalMs) * W);
+            const x      = (ev.startMs / meta.totalMs) * W;
+            const transW = Math.max(2, (ev.durationMs / meta.totalMs) * W);
+            const totalW = Math.max(transW, ((ev.durationMs + (ev.holdMs || 0)) / meta.totalMs) * W);
 
+            // Transition gradient over the transition portion, then solid hold
             if (ev.prevColor && ev.prevColor !== ev.color) {
-                const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+                const grad = ctx.createLinearGradient(x, 0, x + transW, 0);
                 grad.addColorStop(0, rgbToHex(ev.prevColor));
                 grad.addColorStop(1, rgbToHex(ev.color));
                 ctx.fillStyle = grad;
+                ctx.fillRect(x, y, transW, TRACK_H);
+                ctx.fillStyle = rgbToHex(ev.color);
+                ctx.fillRect(x + transW, y, totalW - transW, TRACK_H);
             } else {
                 ctx.fillStyle = rgbToHex(ev.color);
+                ctx.fillRect(x, y, totalW, TRACK_H);
             }
-            ctx.fillRect(x, y, w, TRACK_H);
         }
     });
 }
@@ -145,12 +211,12 @@ function buildSlotCard(slot) {
     // Header
     const header = el('div', 'lib-slot-header');
     const nameEl = el('span', 'lib-slot-name');
-    nameEl.textContent = slot.name || 'Unbenannt';
+    nameEl.textContent = slot.name || t('lib_unnamed');
     header.appendChild(nameEl);
 
     const btnRow = el('div', 'lib-slot-icon-btns');
-    btnRow.appendChild(makeIconBtn('Umbenennen', ICON_EDIT, () => openEditModal(slot)));
-    btnRow.appendChild(makeIconBtn('Löschen', ICON_DELETE, () => deleteSlot(slot.id)));
+    btnRow.appendChild(makeIconBtn(t('lib_rename'), ICON_EDIT, () => openEditModal(slot)));
+    btnRow.appendChild(makeIconBtn(t('lib_delete'), ICON_DELETE, () => deleteSlot(slot.id)));
     header.appendChild(btnRow);
     card.appendChild(header);
 
@@ -170,7 +236,7 @@ function buildSlotCard(slot) {
     canvas.addEventListener('lib-redraw', () => renderMiniTimeline(canvas, slot.yaml));
 
     // Meta chips
-    const meta = extractMeta(slot.yaml);
+    const meta = buildSnapshot(slot.yaml);
     if (meta) {
         const chips = el('div', 'lib-meta-row');
         const dur = meta.totalMs > 0
@@ -187,10 +253,10 @@ function buildSlotCard(slot) {
     // Action buttons
     const actions = el('div', 'lib-actions');
     const loadBtn = el('button', 'lib-btn lib-btn-primary');
-    loadBtn.textContent = 'Laden';
+    loadBtn.textContent = t('lib_load');
     loadBtn.addEventListener('click', () => loadSlot(slot));
     const saveBtn = el('button', 'lib-btn');
-    saveBtn.textContent = 'Überschreiben';
+    saveBtn.textContent = t('lib_overwrite');
     saveBtn.addEventListener('click', () => saveToSlot(slot.id));
     actions.appendChild(loadBtn);
     actions.appendChild(saveBtn);
@@ -209,19 +275,19 @@ function buildEmptyCard() {
     const card = el('div', 'lib-slot-card lib-slot-empty');
 
     const title = el('span', 'lib-slot-name');
-    title.textContent = '+ Leerer Slot';
+    title.textContent = t('lib_empty_slot');
     card.appendChild(title);
 
     const desc = el('p', 'lib-slot-desc');
-    desc.textContent = 'Aktuelles Skript hier ablegen';
+    desc.textContent = t('lib_empty_desc');
     card.appendChild(desc);
 
     const actions = el('div', 'lib-actions');
     const loadBtn = el('button', 'lib-btn');
-    loadBtn.textContent = 'Von Null laden';
+    loadBtn.textContent = t('lib_load_scratch');
     loadBtn.addEventListener('click', loadEmpty);
     const saveBtn = el('button', 'lib-btn lib-btn-primary');
-    saveBtn.textContent = 'Hier speichern';
+    saveBtn.textContent = t('lib_save_here');
     saveBtn.addEventListener('click', saveToNewSlot);
     actions.appendChild(loadBtn);
     actions.appendChild(saveBtn);
@@ -268,7 +334,7 @@ function loadEmpty() {
 function saveToSlot(slotId) {
     const yaml = _deps.getEditorValue();
     let doc;
-    try { doc = jsyaml.load(yaml); } catch { window.showToast?.('Ungültiges YAML', 'error'); return; }
+    try { doc = jsyaml.load(yaml); } catch { window.showToast?.(t('lib_invalid_yaml'), 'error'); return; }
     const slot = _slots.find(s => s.id === slotId);
     if (!slot) return;
     slot.yaml = yaml;
@@ -278,16 +344,16 @@ function saveToSlot(slotId) {
     saveSlots();
     _activeSlotId = slot.id;
     renderLibrary();
-    window.showToast?.('Skript gespeichert', 'success');
+    window.showToast?.(t('lib_saved'), 'success');
 }
 
 function saveToNewSlot() {
     const yaml = _deps.getEditorValue();
     let doc;
-    try { doc = jsyaml.load(yaml); } catch { window.showToast?.('Ungültiges YAML', 'error'); return; }
+    try { doc = jsyaml.load(yaml); } catch { window.showToast?.(t('lib_invalid_yaml'), 'error'); return; }
     const slot = {
         id: String(Date.now()),
-        name: doc?.alias || 'Unbenanntes Skript',
+        name: doc?.alias || t('lib_unnamed_script'),
         description: doc?.description || '',
         yaml,
         savedAt: Date.now(),
@@ -296,7 +362,7 @@ function saveToNewSlot() {
     saveSlots();
     _activeSlotId = slot.id;
     renderLibrary();
-    window.showToast?.('Skript gespeichert', 'success');
+    window.showToast?.(t('lib_saved'), 'success');
 }
 
 function deleteSlot(slotId) {
@@ -317,7 +383,7 @@ function openEditModal(slot) {
 
     const header = el('div', 'modal-header');
     const htitle = el('span');
-    htitle.textContent = 'Slot bearbeiten';
+    htitle.textContent = t('lib_edit_slot');
     header.appendChild(htitle);
     const closeBtn = el('button', 'modal-close-btn');
     closeBtn.textContent = '✕';
@@ -328,14 +394,14 @@ function openEditModal(slot) {
     body.style.gap = '10px';
 
     const nameLabel = el('label');
-    nameLabel.textContent = 'Name';
+    nameLabel.textContent = t('lib_name');
     nameLabel.style.cssText = 'font-size:12px;color:#aaa;display:block;margin-bottom:3px;';
     const nameInput = el('input', 'node-input');
     nameInput.value = slot.name || '';
     nameInput.style.width = '100%';
 
     const descLabel = el('label');
-    descLabel.textContent = 'Beschreibung';
+    descLabel.textContent = t('lib_description');
     descLabel.style.cssText = 'font-size:12px;color:#aaa;display:block;margin-bottom:3px;margin-top:8px;';
     const descInput = el('textarea', 'node-input');
     descInput.value = slot.description || '';
@@ -348,10 +414,10 @@ function openEditModal(slot) {
 
     const footer = el('div', 'modal-footer');
     const cancelBtn = el('button', 'btn-modal-cancel');
-    cancelBtn.textContent = 'Abbrechen';
+    cancelBtn.textContent = t('cancel');
     cancelBtn.addEventListener('click', () => overlay.remove());
     const saveBtn = el('button', 'btn-modal-save');
-    saveBtn.textContent = 'Speichern';
+    saveBtn.textContent = t('lib_save');
     saveBtn.addEventListener('click', () => {
         const newName = nameInput.value.trim() || slot.name;
         const newDesc = descInput.value.trim();

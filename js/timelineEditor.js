@@ -409,27 +409,47 @@ function startLeftHandleDrag(e, block) {
 // ─── Drag: Right Handle (extend transition, right edge only) ─────────────────
 
 function startRightHandleDrag(e, block) {
-    const event    = block._tlEvent;
-    const rampEl   = block.querySelector('.tl-block-ramp');
-    const startX   = e.clientX;
-    const startWidth = block.offsetWidth;
+    const event      = block._tlEvent;
+    const startX     = e.clientX;
+    const startWidth = block.offsetWidth; // reference width — all blocks normalize to this
+
+    // Collect all blocks to resize (multi-select or just this one)
+    const isMulti = _selectedBlocks.size > 1 && _selectedBlocks.has(event);
+    const dragGroup = [];
+    if (isMulti) {
+        document.getElementById('tl-scroll-area')?.querySelectorAll('.tl-block').forEach(bEl => {
+            if (bEl._tlEvent && _selectedBlocks.has(bEl._tlEvent))
+                dragGroup.push({ blockEl: bEl, rampEl: bEl.querySelector('.tl-block-ramp'), ev: bEl._tlEvent });
+        });
+        // Normalize all selected blocks to the dragged block's width immediately
+        dragGroup.forEach(({ blockEl, rampEl: rel }) => {
+            blockEl.style.width = Math.max(4, startWidth) + 'px';
+            if (rel) rel.style.width = Math.max(4, startWidth) + 'px';
+        });
+    } else {
+        dragGroup.push({ blockEl: block, rampEl: block.querySelector('.tl-block-ramp'), ev: event });
+    }
 
     const onMove = (e2) => {
-        const dx = e2.clientX - startX;
-        const rawMs = Math.max(0, startWidth + dx) / _scale;
-        const snappedMs = snapMs(rawMs);
-        const snappedPx = Math.max(4, snappedMs * _scale);
-        block.style.width = snappedPx + 'px';
-        if (rampEl) rampEl.style.width = snappedPx + 'px';
+        const snappedPx = Math.max(4, snapMs(Math.max(0, startWidth + e2.clientX - startX) / _scale) * _scale);
+        dragGroup.forEach(({ blockEl, rampEl: rel }) => {
+            blockEl.style.width = snappedPx + 'px';
+            if (rel) rel.style.width = snappedPx + 'px';
+        });
     };
 
     const onUp = (e2) => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
-        const dx = e2.clientX - startX;
-        const snappedMs = snapMs(Math.max(0, startWidth + dx) / _scale);
-        // rebuildAsAlwaysParallel will recalculate gap delays automatically
-        applyBlockEdit(event.stepRef, { transition: parseFloat((snappedMs / 1000).toFixed(3)) });
+        const snappedMs = snapMs(Math.max(0, startWidth + e2.clientX - startX) / _scale);
+        const transitionSecs = parseFloat((snappedMs / 1000).toFixed(3));
+        dragGroup.forEach(({ ev: ev_ }) => {
+            if (!ev_.stepRef) return;
+            ev_.stepRef.data = ev_.stepRef.data || {};
+            if (transitionSecs > 0) ev_.stepRef.data.transition = transitionSecs;
+            else delete ev_.stepRef.data.transition;
+        });
+        pushTimelineToYaml();
     };
 
     document.addEventListener('mousemove', onMove);
@@ -510,9 +530,20 @@ function startBlockBodyDrag(e, block) {
         if (!hasDragged) return;
         _blockDragFired = true;
         const dx = e2.clientX - startX;
-        dragGroup.forEach(({ origLeft, ev }) =>
-            applyPreDelayEdit(ev, snapMs(Math.max(0, origLeft + dx) / _scale))
-        );
+
+        // Group by parentArray so each entity branch is rebuilt once with all moves applied
+        const branchMoveMap = new Map();
+        dragGroup.forEach(({ origLeft, ev }) => {
+            if (!ev.parentArray) return;
+            const newMs = snapMs(Math.max(0, origLeft + dx) / _scale);
+            if (!branchMoveMap.has(ev.parentArray)) branchMoveMap.set(ev.parentArray, new Map());
+            branchMoveMap.get(ev.parentArray).set(ev, newMs);
+        });
+        branchMoveMap.forEach((moveMap, branch) => {
+            const branchEvs = (_lastEvents || []).filter(ev => ev.parentArray === branch);
+            _rebuildBranch(branch, branchEvs, moveMap);
+        });
+
         pushTimelineToYaml();
     };
 
@@ -1412,28 +1443,38 @@ function applyBlockEdit(stepRef, changes) {
     pushTimelineToYaml();
 }
 
-// Adjusts the delay step immediately before the action to shift the block's startMs.
-function applyPreDelayEdit(event, newStartMs) {
-    const delta = newStartMs - event.startMs;
-    if (Math.abs(delta) < 1) return;
+// Rebuilds a branch array so that blocks in moveMap land at their new absolute positions
+// while all other blocks stay at their original positions. Reorders blocks if needed.
+function _rebuildBranch(branch, branchEvents, moveMap) {
+    if (!branchEvents.length) return;
+    const items = branchEvents.map(ev => ({
+        stepRef: ev.stepRef,
+        startMs: moveMap.has(ev) ? moveMap.get(ev) : ev.startMs,
+        holdMs:  ev.holdMs,
+    })).sort((a, b) => a.startMs - b.startMs);
 
-    if (event.preDelayRef) {
-        const oldMs = parseDelayMs(event.preDelayRef.delay);
-        const newSecs = Math.max(0, (oldMs + delta) / 1000);
-        if (newSecs > 0) {
-            event.preDelayRef.delay = { seconds: parseFloat(newSecs.toFixed(3)) };
-        } else {
-            const idx = event.preDelayParent?.indexOf(event.preDelayRef);
-            if (idx !== undefined && idx >= 0) event.preDelayParent.splice(idx, 1);
-        }
-    } else if (delta > 0) {
-        // No pre-delay exists (block was at t=0). Insert one before the action.
-        const aIdx = event.parentArray?.indexOf(event.stepRef);
-        if (aIdx !== undefined && aIdx >= 0) {
-            event.parentArray.splice(aIdx, 0, { delay: { seconds: parseFloat((delta / 1000).toFixed(3)) } });
-        }
+    branch.length = 0;
+    let currentMs = 0;
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const gapMs = Math.max(0, item.startMs - currentMs);
+        if (gapMs >= 1) branch.push({ delay: { seconds: parseFloat((gapMs / 1000).toFixed(3)) } });
+        branch.push(item.stepRef);
+        // Hold after this block: gap to next block, or original hold for the last block
+        const holdMs = i < items.length - 1
+            ? Math.max(0, items[i + 1].startMs - item.startMs)
+            : item.holdMs;
+        if (holdMs >= 1) branch.push({ delay: { seconds: parseFloat((holdMs / 1000).toFixed(3)) } });
+        currentMs = item.startMs + holdMs;
     }
-    // delta < 0 with no preDelayRef: already at t=0, can't move further left
+}
+
+// Moves `event` to `newStartMs`, keeping all other blocks in its branch at their absolute positions.
+function applyPreDelayEdit(event, newStartMs) {
+    if (!event.parentArray) return;
+    const branchEvs = (_lastEvents || []).filter(ev => ev.parentArray === event.parentArray);
+    if (branchEvs.length === 0) return;
+    _rebuildBranch(event.parentArray, branchEvs, new Map([[event, Math.max(0, newStartMs)]]));
 }
 
 function applyHoldEdit(event, newHoldMs) {

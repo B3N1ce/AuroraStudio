@@ -2560,6 +2560,8 @@ body.simulation-running .panel-tab.active {
     background: #1a1a1e;
     display: flex;
     align-items: flex-end;
+    cursor: grab;
+    user-select: none;
 }
 
 #tl-ruler {
@@ -2685,6 +2687,46 @@ body.simulation-running .panel-tab.active {
 .tl-entity-action-btn.tl-entity-delete:hover {
     background: rgba(255, 85, 85, 0.18);
     color: #ff5555;
+}
+
+/* Marquee selection rectangle */
+.tl-marquee {
+    position: absolute;
+    background: rgba(189, 147, 249, 0.07);
+    border: 1px solid rgba(189, 147, 249, 0.55);
+    border-radius: 2px;
+    pointer-events: none;
+    z-index: 50;
+}
+
+/* Selected block highlight */
+.tl-block-selected {
+    outline: 2px solid #bd93f9;
+    outline-offset: 1px;
+    z-index: 2;
+}
+
+.tl-drag-handle {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding: 0 4px 0 0;
+    color: #444;
+    opacity: 0;
+    cursor: grab;
+    transition: opacity 0.15s, color 0.15s;
+    user-select: none;
+}
+.tl-entity-label:hover .tl-drag-handle { opacity: 1; color: #777; }
+.tl-drag-handle:active { cursor: grabbing; color: #bd93f9; }
+.tl-entity-label.tl-dragging { opacity: 0.35; }
+
+.tl-drop-indicator {
+    height: 2px;
+    background: #bd93f9;
+    border-radius: 1px;
+    pointer-events: none;
+    flex-shrink: 0;
 }
 
 .tl-entity-rename-input {

@@ -15,6 +15,60 @@ let _extraEntities = [];
 let _lastColorByEntity = {};
 let _blockDragFired = false; // suppresses click-popover after a body drag
 let _loopOneMs = 0;          // single-iteration duration when loop active; 0 = no loop
+let _tlEntityOrder = [];
+let _tlDraggedId = null;
+let _tlDropIndicator = null;
+let _lastEvents = null;
+let _lastTotalMs = 0;
+let _selectedBlocks = new Set();
+let _marqueeFired = false;
+
+const TL_ORDER_KEY = 'ha_timeline_entity_order';
+function _loadTlOrder() {
+    try { _tlEntityOrder = JSON.parse(localStorage.getItem(TL_ORDER_KEY) || '[]'); }
+    catch { _tlEntityOrder = []; }
+}
+function _saveTlOrder() {
+    localStorage.setItem(TL_ORDER_KEY, JSON.stringify(_tlEntityOrder));
+}
+function _showTlDropIndicator(labelEl, before) {
+    _removeTlDropIndicator();
+    const ind = document.createElement('div');
+    ind.className = 'tl-drop-indicator';
+    _tlDropIndicator = ind;
+    labelEl.parentNode.insertBefore(ind, before ? labelEl : labelEl.nextSibling);
+}
+function _removeTlDropIndicator() {
+    if (_tlDropIndicator) { _tlDropIndicator.remove(); _tlDropIndicator = null; }
+}
+function _reorderTlEntity(draggedId, targetId, insertBefore) {
+    _tlEntityOrder = _tlEntityOrder.filter(id => id !== draggedId);
+    const idx = _tlEntityOrder.indexOf(targetId);
+    if (idx === -1) _tlEntityOrder.push(draggedId);
+    else _tlEntityOrder.splice(insertBefore ? idx : idx + 1, 0, draggedId);
+    _saveTlOrder();
+    if (_lastEvents !== null) renderTimeline(_lastEvents, _lastTotalMs);
+}
+function _clearSelection() {
+    _selectedBlocks.clear();
+    document.querySelectorAll('.tl-block-selected').forEach(el => el.classList.remove('tl-block-selected'));
+}
+function _updateMarqueeSelection(mx, my, mw, mh, sa) {
+    const newSel = new Set();
+    sa.querySelectorAll('.tl-block').forEach(blockEl => {
+        const ev = blockEl._tlEvent;
+        if (!ev) return;
+        const rowIdx = _tlEntityOrder.indexOf(ev.entityId);
+        if (rowIdx === -1) return;
+        const bx1 = ev.startMs * _scale;
+        const bx2 = bx1 + Math.max(16, (ev.durationMs || 0) * _scale);
+        const by1 = rowIdx * ROW_H;
+        const hit = bx2 > mx && bx1 < mx + mw && by1 + ROW_H > my && by1 < my + mh;
+        blockEl.classList.toggle('tl-block-selected', hit);
+        if (hit) newSel.add(ev);
+    });
+    _selectedBlocks = newSel;
+}
 
 const ROW_H = 36;
 
@@ -22,6 +76,7 @@ const ROW_H = 36;
 
 export function initTimelineEditor(cmEditor) {
     _cmEditor = cmEditor;
+    _loadTlOrder();
     setupDelegatedListeners();
     setupLoopButton();
 }
@@ -134,6 +189,7 @@ function setupDelegatedListeners() {
         if (block && !isHandle) {
             if (_blockDragFired) { _blockDragFired = false; return; }
             closePopover();
+            if (!_selectedBlocks.has(block._tlEvent)) _clearSelection();
             showBlockPopover(block, block._tlEvent);
             return;
         }
@@ -141,6 +197,8 @@ function setupDelegatedListeners() {
         const row = e.target.closest('.tl-row');
         if (row && !block) {
             closePopover();
+            if (_marqueeFired) { _marqueeFired = false; return; }
+            _clearSelection();
             const entityId = row.dataset.entity;
             const scrollArea = document.getElementById('tl-scroll-area');
             const rect = scrollArea.getBoundingClientRect();
@@ -149,7 +207,11 @@ function setupDelegatedListeners() {
             return;
         }
 
-        if (!block) closePopover();
+        if (!block) {
+            closePopover();
+            if (_marqueeFired) _marqueeFired = false;
+            else _clearSelection();
+        }
     });
 
     // ── Mousedown handler (handles + Ctrl+drag copy) ───────────────────────
@@ -186,7 +248,7 @@ function setupDelegatedListeners() {
     const scrollAreaEl = document.getElementById('tl-scroll-area');
     if (scrollAreaEl) {
         scrollAreaEl.addEventListener('wheel', (e) => {
-            if (!e.ctrlKey) return;
+            if (e.shiftKey) return;
             e.preventDefault();
             const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
             const rect = scrollAreaEl.getBoundingClientRect();
@@ -217,6 +279,98 @@ function setupDelegatedListeners() {
             const ghost = document.getElementById('tl-insert-ghost');
             if (ghost) ghost.style.display = 'none';
         }, { passive: true });
+
+        // ── Middle-mouse drag pan ──────────────────────────────────────────────
+        scrollAreaEl.addEventListener('mousedown', e => {
+            if (e.button !== 1) return;
+            e.preventDefault();
+            const startX = e.clientX;
+            const startScroll = scrollAreaEl.scrollLeft;
+            scrollAreaEl.style.cursor = 'grabbing';
+            const onMove = e2 => { scrollAreaEl.scrollLeft = startScroll - (e2.clientX - startX); };
+            const onUp = () => {
+                scrollAreaEl.style.cursor = '';
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+
+        // ── Shift+Wheel → horizontal scroll ───────────────────────────────────
+        scrollAreaEl.addEventListener('wheel', e => {
+            if (e.ctrlKey || !e.shiftKey) return;
+            e.preventDefault();
+            scrollAreaEl.scrollLeft += e.deltaY || e.deltaX;
+        }, { passive: false });
+
+        // ── Marquee selection ─────────────────────────────────────────────────
+        scrollAreaEl.addEventListener('mousedown', e => {
+            if (e.button !== 0) return;
+            if (e.target.closest('.tl-block') || e.target.closest('.tl-block-handle') ||
+                e.target.closest('.tl-block-handle-left')) return;
+            if (!e.target.closest('.tl-row')) return;
+
+            const r0 = scrollAreaEl.getBoundingClientRect();
+            const anchorX = e.clientX - r0.left + scrollAreaEl.scrollLeft;
+            const anchorY = e.clientY - r0.top  + scrollAreaEl.scrollTop;
+            const marqueeEl = document.createElement('div');
+            marqueeEl.className = 'tl-marquee';
+            marqueeEl.style.cssText = `left:${anchorX}px;top:${anchorY}px;width:0;height:0;`;
+            scrollAreaEl.appendChild(marqueeEl);
+            let hasMoved = false;
+
+            const onMove = e2 => {
+                const r = scrollAreaEl.getBoundingClientRect();
+                const curX = e2.clientX - r.left + scrollAreaEl.scrollLeft;
+                const curY = e2.clientY - r.top  + scrollAreaEl.scrollTop;
+                const x = Math.min(anchorX, curX), y = Math.min(anchorY, curY);
+                const w = Math.abs(curX - anchorX),  h = Math.abs(curY - anchorY);
+                if (w > 4 || h > 4) hasMoved = true;
+                Object.assign(marqueeEl.style, { left: x+'px', top: y+'px', width: w+'px', height: h+'px' });
+                if (hasMoved) _updateMarqueeSelection(x, y, w, h, scrollAreaEl);
+            };
+            const onUp = () => {
+                marqueeEl.remove();
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                if (!hasMoved) _clearSelection();
+                else _marqueeFired = true;
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+    }
+
+    // ── Ruler left-drag pan ────────────────────────────────────────────────────
+    const rulerScrollEl = document.getElementById('tl-ruler-scroll');
+    if (rulerScrollEl && scrollAreaEl) {
+        rulerScrollEl.addEventListener('mousedown', e => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            const startX = e.clientX;
+            const startScroll = scrollAreaEl.scrollLeft;
+            rulerScrollEl.style.cursor = 'grabbing';
+            const onMove = e2 => { scrollAreaEl.scrollLeft = startScroll - (e2.clientX - startX); };
+            const onUp = () => {
+                rulerScrollEl.style.cursor = '';
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+
+        // ── Wheel zoom on ruler ───────────────────────────────────────────────
+        rulerScrollEl.addEventListener('wheel', e => {
+            if (e.shiftKey) return;
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+            const rect = rulerScrollEl.getBoundingClientRect();
+            const anchorMs = (e.clientX - rect.left + scrollAreaEl.scrollLeft) / _scale;
+            applyZoom(factor, anchorMs);
+            scrollAreaEl.scrollLeft = anchorMs * _scale - (e.clientX - rect.left);
+        }, { passive: false });
     }
 }
 
@@ -325,17 +479,29 @@ function startBlockCopy(e, block) {
 // ─── Drag: Block Body (move block) ───────────────────────────────────────────
 
 function startBlockBodyDrag(e, block) {
-    const event    = block._tlEvent;
-    const startX   = e.clientX;
-    const origLeft = parseFloat(block.style.left) || 0;
+    const event  = block._tlEvent;
+    const startX = e.clientX;
     let hasDragged = false;
+
+    const isMulti = _selectedBlocks.size > 1 && _selectedBlocks.has(event);
+    const dragGroup = [];
+    if (isMulti) {
+        document.getElementById('tl-scroll-area')?.querySelectorAll('.tl-block').forEach(bEl => {
+            if (bEl._tlEvent && _selectedBlocks.has(bEl._tlEvent))
+                dragGroup.push({ blockEl: bEl, ev: bEl._tlEvent, origLeft: parseFloat(bEl.style.left) || 0 });
+        });
+    } else {
+        _clearSelection();
+        dragGroup.push({ blockEl: block, ev: event, origLeft: parseFloat(block.style.left) || 0 });
+    }
 
     const onMove = (e2) => {
         const dx = e2.clientX - startX;
         if (!hasDragged && Math.abs(dx) < 4) return;
         hasDragged = true;
-        const newStartMs = snapMs(Math.max(0, origLeft + dx) / _scale);
-        block.style.left = (newStartMs * _scale) + 'px';
+        dragGroup.forEach(({ blockEl, origLeft }) => {
+            blockEl.style.left = (snapMs(Math.max(0, origLeft + dx) / _scale) * _scale) + 'px';
+        });
     };
 
     const onUp = (e2) => {
@@ -344,8 +510,9 @@ function startBlockBodyDrag(e, block) {
         if (!hasDragged) return;
         _blockDragFired = true;
         const dx = e2.clientX - startX;
-        const newStartMs = snapMs(Math.max(0, origLeft + dx) / _scale);
-        applyPreDelayEdit(event, newStartMs);
+        dragGroup.forEach(({ origLeft, ev }) =>
+            applyPreDelayEdit(ev, snapMs(Math.max(0, origLeft + dx) / _scale))
+        );
         pushTimelineToYaml();
     };
 
@@ -496,6 +663,8 @@ function renderTimeline(events, totalMs) {
     const rulerScroll = document.getElementById('tl-ruler-scroll');
     const emptyState  = document.getElementById('tl-empty-state');
     if (!scrollArea || !entityCol || !ruler) return;
+    _lastEvents = events;
+    _lastTotalMs = totalMs;
 
     // ── Loop metrics ───────────────────────────────────────────────────────
     // Timeline always shows a single iteration. The cursor wraps via _loopOneMs.
@@ -514,10 +683,17 @@ function renderTimeline(events, totalMs) {
         _loopOneMs = 0;
     }
 
-    // Entity order: from YAML events + manually added extras
+    // Entity order: from YAML events + manually added extras, then apply stored display order
     const entityOrder = [], seen = new Set();
     events.forEach(ev => { if (!seen.has(ev.entityId)) { seen.add(ev.entityId); entityOrder.push(ev.entityId); } });
     _extraEntities.forEach(id => { if (!seen.has(id)) { seen.add(id); entityOrder.push(id); } });
+    {
+        const known = _tlEntityOrder.filter(id => entityOrder.includes(id));
+        const unknown = entityOrder.filter(id => !_tlEntityOrder.includes(id));
+        entityOrder.length = 0;
+        [...known, ...unknown].forEach(id => entityOrder.push(id));
+        _tlEntityOrder = [...entityOrder];
+    }
 
     // Auto-fit scale only on first render (while _scale is still at default 0.1)
     const containerWidth = scrollArea.clientWidth || 600;
@@ -558,6 +734,24 @@ function renderTimeline(events, totalMs) {
         label.className = 'tl-entity-label';
         label.title = entityId;
 
+        const handle = document.createElement('div');
+        handle.className = 'tl-drag-handle';
+        handle.innerHTML = '<svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor"><circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/><circle cx="2" cy="6" r="1.2"/><circle cx="6" cy="6" r="1.2"/><circle cx="2" cy="10" r="1.2"/><circle cx="6" cy="10" r="1.2"/></svg>';
+        handle.draggable = true;
+        handle.addEventListener('dragstart', e => {
+            e.stopPropagation();
+            _tlDraggedId = entityId;
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', entityId);
+            label.classList.add('tl-dragging');
+        });
+        handle.addEventListener('dragend', () => {
+            label.classList.remove('tl-dragging');
+            _removeTlDropIndicator();
+            _tlDraggedId = null;
+        });
+        label.appendChild(handle);
+
         const nameSpan = document.createElement('span');
         nameSpan.className = 'tl-entity-name';
         nameSpan.textContent = entityId.replace('light.', '');
@@ -587,6 +781,25 @@ function renderTimeline(events, totalMs) {
         actions.appendChild(editBtn);
         actions.appendChild(delBtn);
         label.appendChild(actions);
+
+        label.addEventListener('dragover', e => {
+            if (!_tlDraggedId || _tlDraggedId === entityId) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const rect = label.getBoundingClientRect();
+            _showTlDropIndicator(label, e.clientY < rect.top + rect.height / 2);
+        });
+        label.addEventListener('dragleave', e => {
+            if (!label.contains(e.relatedTarget)) _removeTlDropIndicator();
+        });
+        label.addEventListener('drop', e => {
+            e.preventDefault();
+            const rect = label.getBoundingClientRect();
+            const insertBefore = e.clientY < rect.top + rect.height / 2;
+            _removeTlDropIndicator();
+            if (_tlDraggedId && _tlDraggedId !== entityId) _reorderTlEntity(_tlDraggedId, entityId, insertBefore);
+        });
+
         entityCol.appendChild(label);
     });
     // Add-entity button

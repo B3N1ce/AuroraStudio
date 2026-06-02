@@ -2791,13 +2791,15 @@ body.simulation-running .panel-tab.active {
 }
 
 .tl-block-inner {
-    padding: 0 6px 0 5px;
+    margin-left: auto;
+    padding: 0 12px 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
     font-size: 10px;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
-    line-height: 26px;
     pointer-events: none;
     user-select: none;
 }

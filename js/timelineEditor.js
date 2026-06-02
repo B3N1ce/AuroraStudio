@@ -1023,10 +1023,15 @@ function buildBlockElement(event) {
     holdEl.style.background = 'transparent';
     holdEl.style.color      = textColor;
 
-    // Inner label
+    // Inner label (right-aligned; brightness shows sun icon + value)
     const inner = document.createElement('div');
     inner.className = 'tl-block-inner';
-    inner.textContent = buildBlockLabel(event);
+    const _label = buildBlockLabel(event);
+    if (_label && _label !== 'off') {
+        inner.innerHTML = '<svg viewBox="0 0 12 12" width="9" height="9" style="flex-shrink:0;opacity:0.75"><circle cx="6" cy="6" r="2.2" fill="currentColor"/><path d="M6 1v1.5M6 9.5V11M1 6h1.5M9.5 6H11M2.6 2.6l1.1 1.1M8.3 8.3l1.1 1.1M9.4 2.6L8.3 3.7M3.7 8.3L2.6 9.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>' + _label;
+    } else {
+        inner.textContent = _label;
+    }
     holdEl.appendChild(inner);
 
     // Condition badge

@@ -153,9 +153,60 @@ function updateZoomLabel() {
 
 let _hScrollSyncing = false;
 
+function _redrawRuler() {
+    if (_lastEvents === null) return;
+    const scrollArea   = document.getElementById('tl-scroll-area');
+    const ruler        = document.getElementById('tl-ruler');
+    const hscrollInner = document.getElementById('tl-hscroll-inner');
+    if (!scrollArea || !ruler) return;
+
+    const displayMs    = _loopOneMs > 0 ? _loopOneMs : _lastTotalMs;
+    const containerW   = scrollArea.clientWidth || 600;
+    const totalPx      = Math.max(containerW + 20, displayMs * _scale + 100);
+
+    ruler.style.width = totalPx + 'px';
+    if (hscrollInner) hscrollInner.style.width = totalPx + 'px';
+    document.querySelectorAll('#tl-scroll-area .tl-row').forEach(row => {
+        row.style.width = totalPx + 'px';
+    });
+
+    const { major, minor, medium } = calculateTickInterval(_scale);
+    const tickGcd  = medium > 0 ? tickIntervalGcd(minor, medium) : minor;
+    const endMs    = totalPx / _scale;
+    ruler.innerHTML = '';
+    for (let tMs = 0; tMs <= endMs + major; tMs += tickGcd) {
+        const isMajor  = tMs % major === 0;
+        const isMedium = !isMajor && medium > 0 && tMs % medium === 0;
+        const isMinor  = !isMajor && !isMedium && tMs % minor === 0;
+        if (!isMajor && !isMedium && !isMinor) continue;
+        const tick = document.createElement('div');
+        tick.className = 'tl-tick' + (isMajor ? ' major' : isMedium ? ' medium' : '');
+        tick.style.left = (tMs * _scale) + 'px';
+        if (isMajor) {
+            const lbl = document.createElement('span');
+            lbl.className = 'tl-tick-label';
+            lbl.textContent = formatTime(tMs);
+            tick.appendChild(lbl);
+        }
+        ruler.appendChild(tick);
+    }
+}
+
 function setupDelegatedListeners() {
     const container = document.getElementById('tl-container');
     if (!container) return;
+
+    // ── ResizeObserver: redraw ruler when panel width changes ──────────────
+    const scrollArea = document.getElementById('tl-scroll-area');
+    if (scrollArea && typeof ResizeObserver !== 'undefined') {
+        let _lastObservedW = 0;
+        new ResizeObserver(entries => {
+            const w = entries[0]?.contentRect.width ?? 0;
+            if (Math.abs(w - _lastObservedW) < 2) return;
+            _lastObservedW = w;
+            _redrawRuler();
+        }).observe(scrollArea);
+    }
 
     // ── Zoom buttons ───────────────────────────────────────────────────────
     const zoomOutBtn = document.getElementById('tl-zoom-out');
@@ -165,7 +216,6 @@ function setupDelegatedListeners() {
 
     // ── Dedicated horizontal scrollbar sync ────────────────────────────────
     const hscroll  = document.getElementById('tl-hscroll');
-    const scrollArea = document.getElementById('tl-scroll-area');
     const rulerScroll = document.getElementById('tl-ruler-scroll');
 
     if (hscroll && scrollArea) {
@@ -741,7 +791,8 @@ function renderTimeline(events, totalMs) {
     ruler.style.width = totalPx + 'px';
     const { major, minor, medium } = calculateTickInterval(_scale);
     const tickGcd = medium > 0 ? tickIntervalGcd(minor, medium) : minor;
-    for (let tMs = 0; tMs <= displayTotalMs + major; tMs += tickGcd) {
+    const rulerEndMs = totalPx / _scale; // fill the full panel width, not just content
+    for (let tMs = 0; tMs <= rulerEndMs + major; tMs += tickGcd) {
         const isMajor  = tMs % major === 0;
         const isMedium = !isMajor && medium > 0 && tMs % medium === 0;
         const isMinor  = !isMajor && !isMedium && tMs % minor === 0;

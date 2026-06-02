@@ -351,6 +351,10 @@ function init() {
     initEntityManager((entityId, bgColor) => {
         // Wenn eine Lampe angeklickt wird, füttere die Farbe in den Color Picker
         colorPicker.setColorFromExternal(bgColor);
+    }, {
+        getEditorValue: () => editor.getValue(),
+        setEditorValue: (v) => { editor.setValue(v); localStorage.setItem('ha_animation_script', v); },
+        isPlaying: () => isPlaying,
     });
 
     // 4. Desktop Resizer Logic
@@ -637,20 +641,27 @@ function init() {
             item.addEventListener('click', () => {
                 const action = item.dataset.action;
                 const content = SCRIPT_TEMPLATES[action];
-                if (content !== undefined) {
-                    editor.setValue(content);
-                    localStorage.setItem('ha_animation_script', content);
-                    localStorage.removeItem('ha_simulator_breakpoints');
-                    if (breakpoints) breakpoints.clear();
-                    refreshBreakpointMarkers();
-                    if (typeof validateAndSync === 'function') validateAndSync();
-                    const activeTab = document.querySelector('#panel-editor .panel-tab.active');
-                    if (activeTab && activeTab.dataset.tab === 'nodes') syncYamlToNodes();
-                    resetTimelineState();
-                    if (activeTab && activeTab.dataset.tab === 'timeline') { const _d = getCurrentDoc(); if (_d) syncYamlToTimeline(_d); }
-                    showToast(t('new_script_created') || "Neues Skript erstellt", "success");
-                }
                 newScriptMenu.classList.remove('active');
+                if (content !== undefined) {
+                    showConfirmModal({
+                        title: t('new_script'),
+                        message: t('confirm_new_script'),
+                        confirmLabel: t('lib_overwrite'),
+                        onConfirm: () => {
+                            editor.setValue(content);
+                            localStorage.setItem('ha_animation_script', content);
+                            localStorage.removeItem('ha_simulator_breakpoints');
+                            if (breakpoints) breakpoints.clear();
+                            refreshBreakpointMarkers();
+                            if (typeof validateAndSync === 'function') validateAndSync();
+                            const activeTab = document.querySelector('#panel-editor .panel-tab.active');
+                            if (activeTab && activeTab.dataset.tab === 'nodes') syncYamlToNodes();
+                            resetTimelineState();
+                            if (activeTab && activeTab.dataset.tab === 'timeline') { const _d = getCurrentDoc(); if (_d) syncYamlToTimeline(_d); }
+                            showToast(t('new_script_created') || "Neues Skript erstellt", "success");
+                        }
+                    });
+                }
             });
         });
     }
@@ -1148,6 +1159,56 @@ function validateAndSync() {
         return null;
     }
 }
+
+window.showConfirmModal = function ({ title, message, confirmLabel, danger = false, onConfirm }) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-content';
+    modal.style.maxWidth = '380px';
+
+    const header = document.createElement('div');
+    header.className = 'modal-header';
+    const htitle = document.createElement('span');
+    htitle.textContent = title;
+    header.appendChild(htitle);
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'modal-close-btn';
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', () => overlay.remove());
+    header.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    if (message) {
+        const msg = document.createElement('p');
+        msg.style.cssText = 'margin:0;color:#ccc;font-size:13px;line-height:1.5;';
+        msg.textContent = message;
+        body.appendChild(msg);
+    }
+
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn-modal-cancel';
+    cancelBtn.textContent = t('cancel');
+    cancelBtn.addEventListener('click', () => overlay.remove());
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = danger ? 'btn-modal-save btn-modal-danger' : 'btn-modal-save';
+    confirmBtn.textContent = confirmLabel;
+    confirmBtn.addEventListener('click', () => { overlay.remove(); onConfirm(); });
+    footer.appendChild(cancelBtn);
+    footer.appendChild(confirmBtn);
+
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    confirmBtn.focus();
+};
 
 window.showToast = function (msg, type = 'success') {
     // Add to notification log

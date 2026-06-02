@@ -3247,6 +3247,12 @@ body.simulation-running .panel-tab.active {
 }
 .btn-modal-save:hover { background: #caa8ff; }
 
+.btn-modal-danger {
+    background: #c0392b;
+    color: #f8f8f2;
+}
+.btn-modal-danger:hover { background: #e74c3c; }
+
 .btn-modal-cancel {
     padding: 6px 14px;
     background: #282a36;
@@ -3384,3 +3390,24 @@ body.simulation-running .panel-tab.active {
     color: #bd93f9;
 }
 .lib-btn.lib-btn-primary:hover { background: rgba(189,147,249,0.15); }
+
+/* Inspector entity rename / delete buttons */
+.entity-action-btn {
+    opacity: 0.4;
+    transition: opacity 0.15s, color 0.15s;
+}
+.entity-action-btn:hover { opacity: 1; }
+.entity-delete-btn:hover { color: #ff5555 !important; }
+.entity-action-btn:disabled {
+    opacity: 0.15;
+    pointer-events: none;
+}
+
+/* Drag-to-reorder drop indicator */
+.entity-drop-indicator {
+    height: 2px;
+    background: #bd93f9;
+    border-radius: 1px;
+    margin: 0 4px;
+    pointer-events: none;
+}

@@ -2,6 +2,7 @@
 
 import { t } from './i18n.js';
 import { initWebGL, resizeWebGL, setBackgroundTexture, renderScene, isWebGLAvailable } from './webglRenderer.js';
+import { renameEntityInSequence, removeEntityFromSequence } from './timelineEditor.js';
 
 const lamps = new Map();
 const otherEntities = {};
@@ -12,6 +13,21 @@ let currentColorCurve = 'linear';
 let groups        = JSON.parse(localStorage.getItem('ha_simulator_groups'))        || {};
 let hiddenEntities = JSON.parse(localStorage.getItem('ha_simulator_hidden'))       || {};
 let storedPositions = JSON.parse(localStorage.getItem('ha_simulator_lamp_positions')) || {};
+
+// Editor callbacks (injected from app.js)
+let _getEditorValue = null;
+let _setEditorValue = null;
+let _isPlaying = () => false;
+
+// Entity display order
+let _entityOrder = [];
+function _loadEntityOrder() {
+    try { _entityOrder = JSON.parse(localStorage.getItem('ha_simulator_entity_order') || '[]'); }
+    catch { _entityOrder = []; }
+}
+function _saveEntityOrder() {
+    localStorage.setItem('ha_simulator_entity_order', JSON.stringify(_entityOrder));
+}
 
 const ROOM_SIZE = 800;
 
@@ -80,8 +96,12 @@ function savePositions() {
     localStorage.setItem('ha_simulator_lamp_positions', JSON.stringify(positions));
 }
 
-export function initEntityManager(callback) {
+export function initEntityManager(callback, editorCallbacks = {}) {
     selectedEntityCallback = callback;
+    if (editorCallbacks.getEditorValue) _getEditorValue = editorCallbacks.getEditorValue;
+    if (editorCallbacks.setEditorValue) _setEditorValue = editorCallbacks.setEditorValue;
+    if (editorCallbacks.isPlaying)      _isPlaying      = editorCallbacks.isPlaying;
+    _loadEntityOrder();
 
     canvas = document.getElementById('simulation-canvas');
     if (canvas) {
@@ -842,7 +862,221 @@ export function snapLampsToTarget() {
     lamps.forEach(l => l.transitionEnd = 0);
 }
 
-// Entity Browser rendering logic
+// ─── Entity Edit Helpers ──────────────────────────────────────────────────────
+
+function _makeModalOverlay() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    return overlay;
+}
+
+function _showRenameModal(entityId) {
+    const overlay = _makeModalOverlay();
+    const modal = document.createElement('div');
+    modal.className = 'modal-content';
+    modal.style.maxWidth = '380px';
+
+    const header = document.createElement('div');
+    header.className = 'modal-header';
+    const title = document.createElement('span');
+    title.textContent = t('entity_rename_title');
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'modal-close-btn';
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', () => overlay.remove());
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    body.style.gap = '10px';
+    const label = document.createElement('label');
+    label.textContent = t('entity_new_name');
+    label.style.cssText = 'font-size:12px;color:#aaa;display:block;margin-bottom:6px;';
+    const input = document.createElement('input');
+    input.className = 'node-input';
+    input.value = entityId;
+    input.style.width = '100%';
+    input.style.boxSizing = 'border-box';
+    body.appendChild(label);
+    body.appendChild(input);
+
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn-modal-cancel';
+    cancelBtn.textContent = t('cancel');
+    cancelBtn.addEventListener('click', () => overlay.remove());
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn-modal-save';
+    saveBtn.textContent = t('lib_save');
+
+    const doRename = () => {
+        let newId = input.value.trim();
+        if (!newId || newId === entityId) { overlay.remove(); return; }
+        if (!newId.includes('.')) newId = 'light.' + newId;
+        if (!_getEditorValue || !_setEditorValue) { overlay.remove(); return; }
+
+        let doc;
+        try { doc = jsyaml.load(_getEditorValue()); } catch { overlay.remove(); return; }
+        if (!doc) { overlay.remove(); return; }
+
+        // Rename in YAML sequence
+        if (doc.sequence) renameEntityInSequence(doc.sequence, entityId, newId);
+
+        // Rename exact string matches in top-level variables
+        if (doc.variables && typeof doc.variables === 'object') {
+            for (const [k, v] of Object.entries(doc.variables)) {
+                if (v === entityId) doc.variables[k] = newId;
+            }
+        }
+
+        // Rename in top-level alias/entity fields (edge case)
+        if (doc.target?.entity_id === entityId) doc.target.entity_id = newId;
+        else if (Array.isArray(doc.target?.entity_id)) {
+            doc.target.entity_id = doc.target.entity_id.map(id => id === entityId ? newId : id);
+        }
+
+        // Update groups in localStorage
+        if (groups[entityId] !== undefined) {
+            groups[newId] = groups[entityId];
+            delete groups[entityId];
+        }
+        Object.keys(groups).forEach(g => {
+            groups[g] = groups[g].map(c => c === entityId ? newId : c);
+        });
+        saveGroups();
+
+        // Update entity order
+        _entityOrder = _entityOrder.map(id => id === entityId ? newId : id);
+        _saveEntityOrder();
+
+        // Write back YAML — triggers onChange → validateAndSync → full re-render
+        overlay.remove();
+        _setEditorValue(jsyaml.dump(doc, { lineWidth: 120, noRefs: true }));
+    };
+
+    saveBtn.addEventListener('click', doRename);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); doRename(); }
+        if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
+    });
+
+    footer.appendChild(cancelBtn);
+    footer.appendChild(saveBtn);
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+
+    setTimeout(() => { input.focus(); input.select(); }, 50);
+}
+
+function _confirmDelete(entityId) {
+    const overlay = _makeModalOverlay();
+    const modal = document.createElement('div');
+    modal.className = 'modal-content';
+    modal.style.maxWidth = '360px';
+
+    const header = document.createElement('div');
+    header.className = 'modal-header';
+    const title = document.createElement('span');
+    title.textContent = t('lib_delete');
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'modal-close-btn';
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', () => overlay.remove());
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    const msg = document.createElement('p');
+    msg.style.cssText = 'margin:0;font-size:12px;color:#f8f8f2;';
+    msg.innerHTML = `<code style="color:#8be9fd">${entityId}</code>`;
+    const sub = document.createElement('p');
+    sub.style.cssText = 'margin:8px 0 0;font-size:11px;color:#aaa;';
+    sub.textContent = t('entity_delete_confirm');
+    body.appendChild(msg);
+    body.appendChild(sub);
+
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn-modal-cancel';
+    cancelBtn.textContent = t('cancel');
+    cancelBtn.addEventListener('click', () => overlay.remove());
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-modal-save';
+    delBtn.style.cssText = 'border-color:#ff5555;color:#ff5555;';
+    delBtn.textContent = t('lib_delete');
+
+    delBtn.addEventListener('click', () => {
+        if (!_getEditorValue || !_setEditorValue) { overlay.remove(); return; }
+
+        let doc;
+        try { doc = jsyaml.load(_getEditorValue()); } catch { overlay.remove(); return; }
+        if (!doc) { overlay.remove(); return; }
+
+        // Remove from YAML sequence
+        if (doc.sequence) removeEntityFromSequence(doc.sequence, entityId);
+
+        // Remove from top-level variables if exact value match
+        if (doc.variables && typeof doc.variables === 'object') {
+            for (const [k, v] of Object.entries(doc.variables)) {
+                if (v === entityId) delete doc.variables[k];
+            }
+        }
+
+        // Remove from groups
+        delete groups[entityId];
+        Object.keys(groups).forEach(g => {
+            groups[g] = groups[g].filter(c => c !== entityId);
+        });
+        saveGroups();
+
+        // Remove from entity order
+        _entityOrder = _entityOrder.filter(id => id !== entityId);
+        _saveEntityOrder();
+
+        // Write back YAML
+        overlay.remove();
+        _setEditorValue(jsyaml.dump(doc, { lineWidth: 120, noRefs: true }));
+    });
+
+    footer.appendChild(cancelBtn);
+    footer.appendChild(delBtn);
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+}
+
+function _reorderEntity(draggedId, targetId, insertBefore) {
+    // Ensure both IDs are in _entityOrder
+    if (!_entityOrder.includes(draggedId)) _entityOrder.push(draggedId);
+    if (!_entityOrder.includes(targetId))  _entityOrder.push(targetId);
+
+    _entityOrder = _entityOrder.filter(id => id !== draggedId);
+    const targetIdx = _entityOrder.indexOf(targetId);
+    if (targetIdx === -1) return;
+    _entityOrder.splice(insertBefore ? targetIdx : targetIdx + 1, 0, draggedId);
+    _saveEntityOrder();
+    renderEntityBrowser(Array.from(lamps.keys()));
+}
+
+// ─── Entity Browser rendering logic ──────────────────────────────────────────
+
+function _sortByEntityOrder(ids) {
+    // Add any new IDs not yet tracked
+    ids.forEach(id => { if (!_entityOrder.includes(id)) _entityOrder.push(id); });
+    // Remove stale IDs no longer present
+    _entityOrder = _entityOrder.filter(id => ids.includes(id));
+    return [..._entityOrder];
+}
+
 function renderEntityBrowser(uniqueIds) {
     const list = document.getElementById('entity-list');
     if (!list) return;
@@ -853,10 +1087,13 @@ function renderEntityBrowser(uniqueIds) {
         return;
     }
 
+    // Apply stored display order
+    const orderedIds = _sortByEntityOrder(uniqueIds);
+
     const standalone = [];
     const groupNodes = {};
 
-    uniqueIds.forEach(id => {
+    orderedIds.forEach(id => {
         if (groups[id]) {
             groupNodes[id] = groups[id];
         }
@@ -877,11 +1114,16 @@ function renderEntityBrowser(uniqueIds) {
         }
     });
 
-    Object.keys(groupNodes).forEach(g => {
-        list.appendChild(createEntityNode(g, true, false));
-        groupNodes[g].forEach(child => {
-            list.appendChild(createEntityNode(child, false, true, g));
-        });
+    // Render groups in order
+    const renderedGroups = new Set();
+    orderedIds.forEach(id => {
+        if (groupNodes[id] && !renderedGroups.has(id)) {
+            renderedGroups.add(id);
+            list.appendChild(createEntityNode(id, true, false));
+            groupNodes[id].forEach(child => {
+                list.appendChild(createEntityNode(child, false, true, id));
+            });
+        }
     });
 
     standalone.forEach(id => {
@@ -960,6 +1202,30 @@ function createEntityNode(id, isGroup, isChild, parentId = null) {
         actions.appendChild(btnUngroup);
     }
 
+    // Rename button
+    const btnRename = document.createElement('button');
+    btnRename.className = 'btn-icon entity-action-btn';
+    btnRename.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+    btnRename.title = t('lib_rename');
+    btnRename.onclick = (e) => {
+        e.stopPropagation();
+        if (_isPlaying()) return;
+        _showRenameModal(id);
+    };
+    actions.appendChild(btnRename);
+
+    // Delete button
+    const btnDelete = document.createElement('button');
+    btnDelete.className = 'btn-icon entity-action-btn entity-delete-btn';
+    btnDelete.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
+    btnDelete.title = t('lib_delete');
+    btnDelete.onclick = (e) => {
+        e.stopPropagation();
+        if (_isPlaying()) return;
+        _confirmDelete(id);
+    };
+    actions.appendChild(btnDelete);
+
     header.appendChild(actions);
     item.appendChild(header);
 
@@ -1004,7 +1270,26 @@ function createEntityNode(id, isGroup, isChild, parentId = null) {
 
 function setupDragAndDrop() {
     const items = document.querySelectorAll('.entity-item');
-    const lampsList = Array.from(lamps.keys());
+    let _dropReorderTarget = null; // { id, before }
+    let _indicator = null;
+
+    function _removeIndicator() {
+        if (_indicator) { _indicator.remove(); _indicator = null; }
+        _dropReorderTarget = null;
+    }
+
+    function _showDropIndicator(targetEl, insertBefore) {
+        if (!_indicator) {
+            _indicator = document.createElement('div');
+            _indicator.className = 'entity-drop-indicator';
+        }
+        const list = document.getElementById('entity-list');
+        if (insertBefore) {
+            list.insertBefore(_indicator, targetEl);
+        } else {
+            targetEl.after(_indicator);
+        }
+    }
 
     items.forEach(item => {
         if (item.draggable) {
@@ -1015,12 +1300,14 @@ function setupDragAndDrop() {
             item.addEventListener('dragend', () => {
                 item.style.opacity = '1';
                 document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+                _removeIndicator();
             });
         }
 
         if (item.dataset.isGroup === 'true') {
             item.addEventListener('dragover', (e) => {
                 e.preventDefault();
+                _removeIndicator();
                 item.classList.add('drag-over');
             });
             item.addEventListener('dragleave', () => {
@@ -1029,6 +1316,7 @@ function setupDragAndDrop() {
             item.addEventListener('drop', (e) => {
                 e.preventDefault();
                 item.classList.remove('drag-over');
+                _removeIndicator();
                 const childId = e.dataTransfer.getData('text/plain');
                 const groupId = item.dataset.id;
                 if (childId && groupId && childId !== groupId) {
@@ -1038,6 +1326,33 @@ function setupDragAndDrop() {
                         saveGroups();
                         renderEntityBrowser(Array.from(lamps.keys()));
                     }
+                }
+            });
+        } else {
+            // Non-group: support reorder via drop between items
+            item.addEventListener('dragover', (e) => {
+                const draggedId = e.dataTransfer.types.includes('text/plain')
+                    ? null : null; // can't read mid-drag; just allow
+                e.preventDefault();
+                document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+                const rect = item.getBoundingClientRect();
+                const insertBefore = e.clientY < rect.top + rect.height / 2;
+                _dropReorderTarget = { id: item.dataset.id, before: insertBefore };
+                _showDropIndicator(item, insertBefore);
+            });
+            item.addEventListener('dragleave', (e) => {
+                // only remove if truly leaving this item (not moving to indicator)
+                if (!item.contains(e.relatedTarget) && e.relatedTarget !== _indicator) {
+                    _removeIndicator();
+                }
+            });
+            item.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const draggedId = e.dataTransfer.getData('text/plain');
+                const target = _dropReorderTarget;
+                _removeIndicator();
+                if (draggedId && target && draggedId !== target.id) {
+                    _reorderEntity(draggedId, target.id, target.before);
                 }
             });
         }

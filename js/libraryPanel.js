@@ -317,34 +317,55 @@ function renderLibrary() {
 
 function loadSlot(slot) {
     if (_deps.isPlaying()) return;
-    _deps.setEditorValue(slot.yaml);
-    _deps.validateAndSync();
-    _activeSlotId = slot.id;
-    renderLibrary();
+    window.showConfirmModal?.({
+        title: t('confirm_load_title'),
+        message: t('confirm_load_msg'),
+        confirmLabel: t('lib_load'),
+        onConfirm: () => {
+            _deps.setEditorValue(slot.yaml);
+            _deps.validateAndSync();
+            _activeSlotId = slot.id;
+            renderLibrary();
+        }
+    });
 }
 
 function loadEmpty() {
     if (_deps.isPlaying()) return;
-    _deps.setEditorValue(SCRATCH_YAML);
-    _deps.validateAndSync();
-    _activeSlotId = null;
-    renderLibrary();
+    window.showConfirmModal?.({
+        title: t('confirm_load_title'),
+        message: t('confirm_load_msg'),
+        confirmLabel: t('lib_load'),
+        onConfirm: () => {
+            _deps.setEditorValue(SCRATCH_YAML);
+            _deps.validateAndSync();
+            _activeSlotId = null;
+            renderLibrary();
+        }
+    });
 }
 
 function saveToSlot(slotId) {
-    const yaml = _deps.getEditorValue();
-    let doc;
-    try { doc = jsyaml.load(yaml); } catch { window.showToast?.(t('lib_invalid_yaml'), 'error'); return; }
     const slot = _slots.find(s => s.id === slotId);
     if (!slot) return;
-    slot.yaml = yaml;
-    slot.name = doc?.alias || slot.name;
-    slot.description = doc?.description || slot.description;
-    slot.savedAt = Date.now();
-    saveSlots();
-    _activeSlotId = slot.id;
-    renderLibrary();
-    window.showToast?.(t('lib_saved'), 'success');
+    window.showConfirmModal?.({
+        title: t('lib_overwrite'),
+        message: t('confirm_overwrite_slot_msg'),
+        confirmLabel: t('lib_overwrite'),
+        onConfirm: () => {
+            const yaml = _deps.getEditorValue();
+            let doc;
+            try { doc = jsyaml.load(yaml); } catch { window.showToast?.(t('lib_invalid_yaml'), 'error'); return; }
+            slot.yaml = yaml;
+            slot.name = doc?.alias || slot.name;
+            slot.description = doc?.description || slot.description;
+            slot.savedAt = Date.now();
+            saveSlots();
+            _activeSlotId = slot.id;
+            renderLibrary();
+            window.showToast?.(t('lib_saved'), 'success');
+        }
+    });
 }
 
 function saveToNewSlot() {
@@ -366,10 +387,19 @@ function saveToNewSlot() {
 }
 
 function deleteSlot(slotId) {
-    _slots = _slots.filter(s => s.id !== slotId);
-    if (_activeSlotId === slotId) _activeSlotId = null;
-    saveSlots();
-    renderLibrary();
+    const slot = _slots.find(s => s.id === slotId);
+    window.showConfirmModal?.({
+        title: t('confirm_delete_slot_title'),
+        message: t('confirm_delete_slot_msg'),
+        confirmLabel: t('lib_delete'),
+        danger: true,
+        onConfirm: () => {
+            _slots = _slots.filter(s => s.id !== slotId);
+            if (_activeSlotId === slotId) _activeSlotId = null;
+            saveSlots();
+            renderLibrary();
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------

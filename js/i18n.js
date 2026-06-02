@@ -106,7 +106,15 @@ const translations = {
         lib_unnamed: "Unbenannt",
         lib_unnamed_script: "Unbenanntes Skript",
         lib_invalid_yaml: "Ungültiges YAML",
-        lib_saved: "Skript gespeichert"
+        lib_saved: "Skript gespeichert",
+        entity_rename_title: "Entität umbenennen",
+        entity_new_name: "Neuer Name",
+        entity_delete_confirm: "Alle Aktionen dieser Entität werden aus dem Skript entfernt.",
+        confirm_delete_slot_title: "Slot löschen",
+        confirm_delete_slot_msg: "Dieser Slot wird dauerhaft gelöscht und kann nicht wiederhergestellt werden.",
+        confirm_load_title: "Skript laden",
+        confirm_load_msg: "Das aktuelle Skript wird ersetzt. Nicht gespeicherte Änderungen gehen verloren.",
+        confirm_overwrite_slot_msg: "Der gespeicherte Slot wird mit dem aktuellen Skript überschrieben."
     },
     en: {
         title: "Aurora Studio",
@@ -213,7 +221,15 @@ const translations = {
         lib_unnamed: "Unnamed",
         lib_unnamed_script: "Unnamed Script",
         lib_invalid_yaml: "Invalid YAML",
-        lib_saved: "Script saved"
+        lib_saved: "Script saved",
+        entity_rename_title: "Rename Entity",
+        entity_new_name: "New Name",
+        entity_delete_confirm: "All actions for this entity will be removed from the script.",
+        confirm_delete_slot_title: "Delete Slot",
+        confirm_delete_slot_msg: "This slot will be permanently deleted and cannot be recovered.",
+        confirm_load_title: "Load Script",
+        confirm_load_msg: "The current script will be replaced. Unsaved changes will be lost.",
+        confirm_overwrite_slot_msg: "The saved slot will be overwritten with the current script."
     }
 };
 

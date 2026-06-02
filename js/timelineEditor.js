@@ -1009,14 +1009,22 @@ function makeNumberInput(value, min, max, step) {
 // ─── Track Edit / Delete ──────────────────────────────────────────────────────
 
 function deleteTrack(entityId) {
-    const doc = getCurrentDoc();
-    if (!doc || !doc.sequence) return;
-    removeEntityFromSequence(doc.sequence, entityId);
-    _extraEntities = _extraEntities.filter(id => id !== entityId);
-    pushTimelineToYaml();
+    window.showConfirmModal?.({
+        title: entityId,
+        message: t('entity_delete_confirm'),
+        confirmLabel: t('lib_delete'),
+        danger: true,
+        onConfirm: () => {
+            const doc = getCurrentDoc();
+            if (!doc || !doc.sequence) return;
+            removeEntityFromSequence(doc.sequence, entityId);
+            _extraEntities = _extraEntities.filter(id => id !== entityId);
+            pushTimelineToYaml();
+        }
+    });
 }
 
-function removeEntityFromSequence(seq, entityId) {
+export function removeEntityFromSequence(seq, entityId) {
     let i = 0;
     while (i < seq.length) {
         const step = seq[i];
@@ -1102,7 +1110,7 @@ function renameTrack(oldId, newId) {
     pushTimelineToYaml();
 }
 
-function renameEntityInSequence(seq, oldId, newId) {
+export function renameEntityInSequence(seq, oldId, newId) {
     seq.forEach(step => {
         const type = detectStepType(step);
         if (type === 'action') {

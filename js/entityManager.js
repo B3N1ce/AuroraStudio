@@ -3,6 +3,7 @@
 import { t } from './i18n.js';
 import { initWebGL, resizeWebGL, setBackgroundTexture, renderScene, isWebGLAvailable } from './webglRenderer.js';
 import { renameEntityInSequence, removeEntityFromSequence } from './timelineEditor.js';
+import { openColorPicker, rgbToHex } from './colorPicker.js';
 
 const lamps = new Map();
 const otherEntities = {};
@@ -121,15 +122,21 @@ export function initEntityManager(callback, editorCallbacks = {}) {
         window.addEventListener('mousemove', handleMouseMove);
         window.addEventListener('mouseup', handleMouseUp);
 
-        // Wall color picker init
-        const wallPicker = document.getElementById('picker-wall-color');
-        if (wallPicker) {
-            wallPicker.addEventListener('input', (e) => {
-                const hex = e.target.value;
-                wallColor.r = parseInt(hex.slice(1, 3), 16);
-                wallColor.g = parseInt(hex.slice(3, 5), 16);
-                wallColor.b = parseInt(hex.slice(5, 7), 16);
-                isDirty = true;
+        // Wall color swatch
+        const wallSwatch = document.getElementById('wall-color-swatch');
+        if (wallSwatch) {
+            wallSwatch.style.backgroundColor = rgbToHex([wallColor.r, wallColor.g, wallColor.b]);
+            wallSwatch.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openColorPicker(wallSwatch, [wallColor.r, wallColor.g, wallColor.b], {
+                    onPick: (r, g, b) => {
+                        wallColor.r = r;
+                        wallColor.g = g;
+                        wallColor.b = b;
+                        wallSwatch.style.backgroundColor = rgbToHex([r, g, b]);
+                        isDirty = true;
+                    }
+                });
             });
         }
 

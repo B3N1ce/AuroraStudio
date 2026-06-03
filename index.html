@@ -189,7 +189,7 @@
                 <span class="panel-title" data-i18n="simulation">Simulation</span>
                 <div class="panel-tools">
                     <div class="panel-tools-group" style="display: flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.05); padding: 2px 5px; border-radius: 4px; border: 1px solid #444;" title="Raum-Hintergrund (Farbe oder Foto)">
-                        <input type="color" id="picker-wall-color" value="#ffffff" style="width: 18px; height: 18px; padding: 0; border: 1px solid #666; background: none; cursor: pointer; border-radius: 2px;">
+                        <div id="wall-color-swatch" class="cp-wall-swatch" style="background:#ffffff;" title="Wandfarbe ändern"></div>
                         
                         <div class="dropdown-container">
                             <button id="btn-bg-menu" class="btn-editor-icon" style="background: none; border: none; padding: 0;" title="Hintergrund wählen / Choose Background" data-i18n-title="choose_bg"></button>
@@ -355,35 +355,39 @@
                 <div class="inspector-section">
                     <div class="section-title" data-i18n="color_picker">Color Picker</div>
                     <div id="color-tool">
-                        <div class="color-tabs">
-                            <div class="color-tab active" data-mode="rgb">RGB</div>
-                            <div class="color-tab" data-mode="xy">XY</div>
-                            <div class="color-tab" data-mode="hs">HS</div>
+                        <canvas id="cp-sv" class="cp-sv-canvas"></canvas>
+                        <canvas id="cp-hue" class="cp-hue-canvas"></canvas>
+
+                        <div class="cp-preview-row">
+                            <div id="cp-swatch" class="cp-swatch-preview"></div>
+                            <input type="text" id="cp-hex" class="cp-hex-input" maxlength="7" placeholder="#RRGGBB">
                         </div>
-                        <div class="color-inputs">
-                            <input type="color" id="picker-color" value="#00ffcc">
-                            <div style="display: flex; flex-direction: column; gap: 5px;">
-                                <div class="input-group" id="group-rgb">
-                                    <label>RGB</label>
-                                    <input type="number" id="in-r" min="0" max="255" value="0">
-                                    <input type="number" id="in-g" min="0" max="255" value="255">
-                                    <input type="number" id="in-b" min="0" max="255" value="204">
-                                </div>
-                                <div class="input-group" id="group-xy" style="display:none;">
-                                    <label>XY</label>
-                                    <input type="number" id="in-x" step="0.001" value="0.171">
-                                    <input type="number" id="in-y" step="0.001" value="0.342">
-                                </div>
-                                <div class="input-group" id="group-hs" style="display:none;">
-                                    <label>HS</label>
-                                    <input type="number" id="in-h" min="0" max="360" value="168">
-                                    <input type="number" id="in-s" min="0" max="100" value="100">
-                                </div>
-                            </div>
+
+                        <div class="cp-tabs">
+                            <button class="cp-tab active" data-mode="rgb">RGB</button>
+                            <button class="cp-tab" data-mode="hs">HS</button>
+                            <button class="cp-tab" data-mode="xy">XY</button>
                         </div>
+
+                        <div id="cp-group-rgb" class="cp-input-group" style="display:grid;">
+                            <label>R</label><input type="number" id="cp-r" min="0" max="255">
+                            <label>G</label><input type="number" id="cp-g" min="0" max="255">
+                            <label>B</label><input type="number" id="cp-b" min="0" max="255">
+                        </div>
+                        <div id="cp-group-hs" class="cp-input-group" style="display:none;">
+                            <label>H</label><input type="number" id="cp-h" min="0" max="360">
+                            <label>S</label><input type="number" id="cp-s" min="0" max="100">
+                        </div>
+                        <div id="cp-group-xy" class="cp-input-group" style="display:none;">
+                            <label>X</label><input type="number" id="cp-x" step="0.001" min="0" max="1">
+                            <label>Y</label><input type="number" id="cp-y" step="0.001" min="0" max="1">
+                        </div>
+
+                        <div class="cp-section-label" id="cp-script-label" style="display:none;">Script Colors</div>
+                        <div id="cp-script-colors" class="cp-swatches" style="display:none;"></div>
+
                         <div class="snippets-grid">
-                            <div class="code-snippet" id="btn-insert-color" data-i18n="insert_editor">In Editor einfügen
-                            </div>
+                            <div class="code-snippet" id="btn-insert-color" data-i18n="insert_editor">In Editor einfügen</div>
                         </div>
                         <div class="color-favorites" id="favorites-container">
                             <button class="favorite-add" id="btn-add-favorite" data-i18n-title="save_color"

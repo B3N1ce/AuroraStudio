@@ -1139,6 +1139,9 @@ function validateAndSync() {
         // Update Global Variable Panel with full discovery
         updateVariablePanel(doc);
 
+        // Update color picker script swatches
+        if (colorPicker) colorPicker.updateScriptColors(doc);
+
         // Update Breakpoint Markers in YAML Gutter
         refreshBreakpointMarkers();
 

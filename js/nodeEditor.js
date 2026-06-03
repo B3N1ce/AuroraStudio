@@ -2,6 +2,7 @@ import { breakpoints, toggleBreakpoint } from './simulator.js';
 import { initEntityManager, updateLampEntities, resetLamps, hasModifiedLamps, setColorCurve, getAvailableEntities } from './entityManager.js';
 import { t } from './i18n.js';
 import { resolveTemplate } from './templateEngine.js';
+import { openColorPicker } from './colorPicker.js';
 
 let _editor = null;
 let _isSyncing = false;
@@ -855,39 +856,34 @@ function renderDataFields(container, obj, onChange) {
             valContainer.appendChild(valIn);
 
             if (isColor) {
-                const picker = el('input', 'node-color-picker');
-                picker.type = 'color';
-                picker.style.width = '30px';
-                picker.style.height = '28px';
-                picker.style.padding = '0';
-                picker.style.cursor = 'pointer';
-                picker.style.flexShrink = '0';
-                
-                let rgb = [255, 255, 255];
-                if (obj[k].length === 3) rgb = obj[k];
-                else if (k.includes('hs')) rgb = hsToRgb(obj[k]);
-                else if (k.includes('xy')) rgb = xyToRgb(obj[k]);
-                picker.value = rgbToHex(rgb);
-                
-                picker.addEventListener('input', () => {
-                    const hex = picker.value;
-                    const r = parseInt(hex.slice(1, 3), 16);
-                    const g = parseInt(hex.slice(3, 5), 16);
-                    const b = parseInt(hex.slice(5, 7), 16);
-                    
-                    let newArr = [r, g, b];
-                    if (obj[k].length === 2) {
-                        if (k.includes('hs')) newArr = rgbToHs(newArr);
-                        else newArr = rgbToXy(newArr);
-                    }
-                    
-                    obj[keyIn.value] = newArr;
-                    valIn.value = JSON.stringify(newArr);
-                    valIn.style.borderColor = '#50fa7b';
-                    onChange();
+                let _fieldRgb = [255, 255, 255];
+                if (obj[k].length === 3) _fieldRgb = [...obj[k]];
+                else if (k.includes('hs')) _fieldRgb = hsToRgb(obj[k]);
+                else if (k.includes('xy')) _fieldRgb = xyToRgb(obj[k]);
+
+                const swatchEl = el('div', 'node-color-swatch');
+                swatchEl.style.backgroundColor = rgbToHex(_fieldRgb);
+
+                swatchEl.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openColorPicker(swatchEl, _fieldRgb, {
+                        onPick: (r, g, b) => {
+                            _fieldRgb = [r, g, b];
+                            swatchEl.style.backgroundColor = rgbToHex([r, g, b]);
+                            let newArr = [r, g, b];
+                            if (obj[k].length === 2) {
+                                if (k.includes('hs')) newArr = rgbToHs([r, g, b]);
+                                else newArr = rgbToXy([r, g, b]);
+                            }
+                            obj[keyIn.value] = newArr;
+                            valIn.value = JSON.stringify(newArr);
+                            valIn.style.borderColor = '#50fa7b';
+                            onChange();
+                        }
+                    });
                 });
-                
-                valContainer.appendChild(picker);
+
+                valContainer.appendChild(swatchEl);
             }
 
             valIn.addEventListener('input', () => {
@@ -1324,8 +1320,7 @@ function makeSmartColor(label, dataObj, onChange) {
     field.appendChild(headRow);
 
     const controlRow = el('div', 'node-smart-row');
-    const picker = el('input', 'node-color-picker');
-    picker.type = 'color';
+    const picker = el('div', 'node-color-swatch');
 
     const override = el('input', 'node-input node-input-override');
     override.placeholder = 'Value or {{...}}';
@@ -1340,8 +1335,29 @@ function makeSmartColor(label, dataObj, onChange) {
             else if (currentMode === 'hs_color') rgb = hsToRgb(val);
             else if (currentMode === 'xy_color') rgb = xyToRgb(val);
         }
-        picker.value = rgbToHex(rgb);
+        picker.style.backgroundColor = rgbToHex(rgb);
     };
+
+    picker.addEventListener('click', (e) => {
+        e.stopPropagation();
+        let cur = [255, 255, 255];
+        const val = dataObj[currentMode];
+        if (val) {
+            if (currentMode === 'rgb_color') cur = [...val];
+            else if (currentMode === 'hs_color') cur = hsToRgb(val);
+            else if (currentMode === 'xy_color') cur = xyToRgb(val);
+        }
+        openColorPicker(picker, cur, {
+            onPick: (r, g, b) => {
+                if (currentMode === 'rgb_color') dataObj[currentMode] = [r, g, b];
+                else if (currentMode === 'hs_color') dataObj[currentMode] = rgbToHs([r, g, b]);
+                else if (currentMode === 'xy_color') dataObj[currentMode] = rgbToXy([r, g, b]);
+                picker.style.backgroundColor = rgbToHex([r, g, b]);
+                override.value = JSON.stringify(dataObj[currentMode]);
+                onChange();
+            }
+        });
+    });
 
     modeSel.addEventListener('change', () => {
         const oldMode = currentMode;
@@ -1364,16 +1380,6 @@ function makeSmartColor(label, dataObj, onChange) {
         }
 
         updateUI();
-        onChange();
-    });
-
-    picker.addEventListener('input', () => {
-        const rgb = hexToRgb(picker.value);
-        if (currentMode === 'rgb_color') dataObj[currentMode] = rgb;
-        else if (currentMode === 'hs_color') dataObj[currentMode] = rgbToHs(rgb);
-        else if (currentMode === 'xy_color') dataObj[currentMode] = rgbToXy(rgb);
-
-        override.value = JSON.stringify(dataObj[currentMode]);
         onChange();
     });
 

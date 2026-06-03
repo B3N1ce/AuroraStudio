@@ -3,6 +3,7 @@
 import { getCurrentDoc, assignPaths } from './nodeEditor.js';
 import { t } from './i18n.js';
 import { getSimElapsedMs, isSimRunning } from './simulator.js';
+import { openColorPicker, dismissColorPickerPopup } from './colorPicker.js';
 
 // ─── Module State ─────────────────────────────────────────────────────────────
 
@@ -1125,14 +1126,23 @@ function showBlockPopover(blockEl, event) {
     // Color
     if (!event.isOff) {
         const row = makePopoverRow(t('tl_color'));
-        const colorInput = document.createElement('input');
-        colorInput.type = 'color';
-        colorInput.className = 'tl-popover-color';
-        colorInput.value = rgbToHex(event.color || [255, 255, 255]);
-        colorInput.addEventListener('change', () =>
-            applyBlockEdit(event.stepRef, { rgb_color: hexToRgb(colorInput.value) })
-        );
-        row.appendChild(colorInput);
+        const colorSwatch = document.createElement('div');
+        colorSwatch.className = 'tl-color-swatch';
+        let _editRgb = event.color ? [...event.color] : [255, 255, 255];
+        colorSwatch.style.backgroundColor = rgbToHex(_editRgb);
+        colorSwatch.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openColorPicker(colorSwatch, _editRgb, {
+                onPick: (r, g, b) => {
+                    _editRgb = [r, g, b];
+                    colorSwatch.style.backgroundColor = rgbToHex([r, g, b]);
+                },
+                onClose: (r, g, b) => {
+                    applyBlockEdit(event.stepRef, { rgb_color: [r, g, b] });
+                }
+            });
+        });
+        row.appendChild(colorSwatch);
         popover.appendChild(row);
     }
 
@@ -1171,17 +1181,26 @@ function showNewBlockPopover(entityId, startMs, clickX, clickY) {
     popover.id = 'tl-popover';
     popover.className = 'tl-popover';
 
-    const defaultColor = _lastColorByEntity[entityId]
-        ? rgbToHex(_lastColorByEntity[entityId])
-        : '#ff9900';
+    let _createRgb = _lastColorByEntity[entityId]
+        ? [..._lastColorByEntity[entityId]]
+        : hexToRgb('#ff9900');
 
     // Color
     const colorRow = makePopoverRow(t('tl_color'));
-    const colorInput = document.createElement('input');
-    colorInput.type = 'color';
-    colorInput.className = 'tl-popover-color';
-    colorInput.value = defaultColor;
-    colorRow.appendChild(colorInput);
+    const colorSwatch = document.createElement('div');
+    colorSwatch.className = 'tl-color-swatch';
+    colorSwatch.style.backgroundColor = rgbToHex(_createRgb);
+    colorSwatch.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openColorPicker(colorSwatch, _createRgb, {
+            onPick: (r, g, b) => {
+                _createRgb = [r, g, b];
+                colorSwatch.style.backgroundColor = rgbToHex([r, g, b]);
+                if (document.getElementById('tl-block-ghost')) showGhost();
+            }
+        });
+    });
+    colorRow.appendChild(colorSwatch);
     popover.appendChild(colorRow);
 
     // Brightness
@@ -1207,7 +1226,7 @@ function showNewBlockPopover(entityId, startMs, clickX, clickY) {
             startMs:      effectiveStartMs,
             durationMs:   tr,
             holdMs:       tr,
-            color:        hexToRgb(colorInput.value),
+            color:        _createRgb,
             brightness:   parseFloat(brInput.value),
             isOff:        false,
             isTemplate:   false,
@@ -1233,16 +1252,15 @@ function showNewBlockPopover(entityId, startMs, clickX, clickY) {
     createBtn.addEventListener('mouseenter', showGhost);
     createBtn.addEventListener('mouseleave', removeBlockGhost);
     createBtn.addEventListener('click', () => {
-        const color      = hexToRgb(colorInput.value);
         const brightness = parseFloat(brInput.value);
         const transition = parseFloat(trInput.value) || 0;
         closePopover();
-        createNewBlock(entityId, startMs, color, brightness, transition);
+        createNewBlock(entityId, startMs, _createRgb, brightness, transition);
     });
     popover.appendChild(createBtn);
 
     // Live-update ghost when inputs change
-    [colorInput, brInput, trInput].forEach(inp => {
+    [brInput, trInput].forEach(inp => {
         inp.addEventListener('input', () => {
             if (document.getElementById('tl-block-ghost')) showGhost();
         });
@@ -1262,13 +1280,14 @@ function showNewBlockPopover(entityId, startMs, clickX, clickY) {
 }
 
 function _closeOnOutside(e) {
-    if (!e.target.closest('#tl-popover') && !e.target.closest('.tl-block')) closePopover();
+    if (!e.target.closest('#tl-popover') && !e.target.closest('.tl-block') && !e.target.closest('.cp-popup')) closePopover();
 }
 
 function closePopover() {
     const p = document.getElementById('tl-popover');
     if (p) p.remove();
     document.removeEventListener('click', _closeOnOutside);
+    dismissColorPickerPopup();
     removeBlockGhost();
 }
 

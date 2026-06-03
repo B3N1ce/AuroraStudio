@@ -1257,6 +1257,13 @@ button {
 
 .cp-swatch-dot:hover { transform: scale(1.2); }
 
+.cp-swatch-dot-replacing {
+    transform: scale(1.35);
+    box-shadow: 0 0 0 2px #bd93f9, 0 0 6px rgba(189, 147, 249, 0.5);
+    position: relative;
+    z-index: 1;
+}
+
 /* ---- Floating popup color picker ---- */
 
 .cp-popup {
@@ -1266,9 +1273,18 @@ button {
     border: 1px solid #555;
     border-radius: 8px;
     padding: 10px;
-    width: 240px;
+    width: 260px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.5);
     display: none;
+}
+
+.cp-popup .cp-tabs {
+    margin-top: 8px;
+    margin-bottom: 4px;
+}
+
+.cp-popup .cp-input-group {
+    margin-bottom: 4px;
 }
 
 .cp-popup-sv {

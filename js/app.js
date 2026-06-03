@@ -3,7 +3,7 @@
 import { initEntityManager, updateLampEntities, resetLamps, hasModifiedLamps, setColorCurve, resizeCanvas, resetSimView, toggleLabels, setBackgroundImage, toggleEntities, getEntitiesVisible, getLabelsVisible, setLightInfluence, getLightInfluence, setBlendMode, getBlendMode, setAmbientLevel, getAmbientLevel, setExposure, getExposure, hasBackgroundImage, setOnBackgroundChange, getDebugStats } from './entityManager.js';
 import { ColorPicker } from './colorPicker.js';
 import { startSimulation, stopSimulation, pauseSimulation, resumeSimulation, setVarUpdateCallback, toggleBreakpoint, breakpoints, getSimElapsedMs, isSimRunning } from './simulator.js';
-import { initTimelineEditor, syncYamlToTimeline, startTimelineCursor, resetTimelineState } from './timelineEditor.js';
+import { initTimelineEditor, syncYamlToTimeline, startTimelineCursor, resetTimelineState, clearTimelineCursor } from './timelineEditor.js';
 import { t, setLang, getLang, applyTranslations } from './i18n.js';
 import { initNodeEditor, syncYamlToNodes, updateVariablePanel, updateRuntimeVariablesUI, resetRuntimeVariablesUI, getCurrentRuntimeVars, getCurrentDoc, assignPaths, setCurrentDoc, highlightExecutingNode } from './nodeEditor.js';
 import { resolveTemplate } from './templateEngine.js';
@@ -760,6 +760,7 @@ function init() {
         } else {
             resetLamps();
             resetRuntimeVariablesUI();
+            clearTimelineCursor();
             setUIRunning(false, false);
         }
     });

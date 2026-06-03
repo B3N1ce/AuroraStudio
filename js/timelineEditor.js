@@ -11,6 +11,7 @@ let _cmEditor = null;
 let _scale = 0.1;       // px per ms — 0.1 = default, triggers auto-fit on first render
 let _totalMs = 1000;
 let _rafId = null;
+let _cursorDisplayMs = null; // null = hidden; number = visible at that ms position
 let _scrollSyncHandler = null;
 let _extraEntities = [];
 let _lastColorByEntity = {};
@@ -93,10 +94,17 @@ export function syncYamlToTimeline(doc) {
 
 export function startTimelineCursor() {
     if (_rafId) return;
+    _cursorDisplayMs = 0;
     const cursor = document.getElementById('tl-cursor');
     if (cursor) cursor.style.display = 'block';
     const tick = () => {
-        if (!isSimRunning()) { _rafId = null; return; }
+        if (!isSimRunning()) {
+            _rafId = null;
+            _cursorDisplayMs = 0;
+            const cursor = document.getElementById('tl-cursor');
+            if (cursor) cursor.style.left = '0px';
+            return;
+        }
         setPlaybackTime(getSimElapsedMs());
         _rafId = requestAnimationFrame(tick);
     };
@@ -108,6 +116,7 @@ export function setPlaybackTime(ms) {
     const scrollArea = document.getElementById('tl-scroll-area');
     if (!cursor) return;
     const displayMs = _loopOneMs > 0 ? ms % _loopOneMs : ms;
+    _cursorDisplayMs = displayMs;
     const left = displayMs * _scale;
     cursor.style.left = left + 'px';
     cursor.style.display = 'block';
@@ -119,9 +128,16 @@ export function setPlaybackTime(ms) {
     }
 }
 
+export function clearTimelineCursor() {
+    _cursorDisplayMs = null;
+    const cursor = document.getElementById('tl-cursor');
+    if (cursor) cursor.style.display = 'none';
+}
+
 export function resetTimelineState() {
     _extraEntities = [];
     _lastColorByEntity = {};
+    clearTimelineCursor();
     _scale = 0.1; // triggers auto-fit on next render
     updateZoomLabel();
 }
@@ -231,6 +247,7 @@ function setupDelegatedListeners() {
 
     // ── Click handler ──────────────────────────────────────────────────────
     container.addEventListener('click', (e) => {
+        if (document.body.classList.contains('simulation-running')) return;
         if (e.target.closest('#tl-popover')) return;
 
         const isHandle = e.target.classList.contains('tl-block-handle') ||
@@ -267,6 +284,8 @@ function setupDelegatedListeners() {
 
     // ── Mousedown handler (handles + Ctrl+drag copy) ───────────────────────
     container.addEventListener('mousedown', (e) => {
+        if (document.body.classList.contains('simulation-running')) return;
+
         const isLeftHandle  = e.target.classList.contains('tl-block-handle-left');
         const isRightHandle = e.target.classList.contains('tl-block-handle');
 
@@ -969,6 +988,10 @@ function renderTimeline(events, totalMs) {
     const cursor = document.createElement('div');
     cursor.id = 'tl-cursor';
     cursor.style.height = (Math.max(1, entityOrder.length) * ROW_H) + 'px';
+    if (_cursorDisplayMs !== null) {
+        cursor.style.left = (_cursorDisplayMs * _scale) + 'px';
+        cursor.style.display = 'block';
+    }
     scrollArea.appendChild(cursor);
 
     // ── Insert ghost ───────────────────────────────────────────────────────
@@ -1169,7 +1192,7 @@ function showBlockPopover(blockEl, event) {
 
     document.body.appendChild(popover);
     positionPopover(popover, blockEl.getBoundingClientRect());
-    setTimeout(() => document.addEventListener('click', _closeOnOutside), 0);
+    setTimeout(() => document.addEventListener('mousedown', _closeOnOutside), 0);
 }
 
 // ─── New Block Popover (create from click) ────────────────────────────────────
@@ -1276,17 +1299,19 @@ function showNewBlockPopover(entityId, startMs, clickX, clickY) {
     popover.style.left = Math.max(4, left) + 'px';
     popover.style.top  = Math.max(4, top)  + 'px';
 
-    setTimeout(() => document.addEventListener('click', _closeOnOutside), 0);
+    setTimeout(() => document.addEventListener('mousedown', _closeOnOutside), 0);
 }
 
 function _closeOnOutside(e) {
+    const popup = document.querySelector('.cp-popup');
+    if (popup && popup.style.display !== 'none') return;
     if (!e.target.closest('#tl-popover') && !e.target.closest('.tl-block') && !e.target.closest('.cp-popup')) closePopover();
 }
 
 function closePopover() {
     const p = document.getElementById('tl-popover');
     if (p) p.remove();
-    document.removeEventListener('click', _closeOnOutside);
+    document.removeEventListener('mousedown', _closeOnOutside);
     dismissColorPickerPopup();
     removeBlockGhost();
 }

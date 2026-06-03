@@ -224,13 +224,14 @@ function pushToYaml() {
         // Always explicit top-level fields
         ordered.alias = _currentDoc.alias ?? 'My Script';
         ordered.mode = _currentDoc.mode ?? 'single';
+        if (_currentDoc.description) ordered.description = _currentDoc.description;
 
         if ('icon' in _currentDoc) ordered.icon = _currentDoc.icon;
         if ('variables' in _currentDoc) ordered.variables = _currentDoc.variables;
 
         // Copy any other keys (except sequence which should be last)
         Object.keys(_currentDoc).forEach(k => {
-            if (!['alias', 'mode', 'icon', 'variables', 'sequence'].includes(k)) {
+            if (!['alias', 'mode', 'description', 'icon', 'variables', 'sequence'].includes(k)) {
                 ordered[k] = _currentDoc[k];
             }
         });
@@ -382,6 +383,22 @@ function renderHeaderNode(doc) {
         });
         return sel;
     })()));
+
+    // Description textarea
+    const descTA = el('textarea', 'node-input');
+    descTA.placeholder = 'Optional description';
+    descTA.value = doc.description || '';
+    descTA.rows = 2;
+    descTA.style.resize = 'vertical';
+    descTA.style.minHeight = '36px';
+    descTA.style.width = '100%';
+    descTA.addEventListener('change', () => {
+        const v = descTA.value.trim();
+        if (v) doc.description = v;
+        else delete doc.description;
+        pushToYaml();
+    });
+    body.appendChild(makeField('Description', descTA));
 
     return node;
 }

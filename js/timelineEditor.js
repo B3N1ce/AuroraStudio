@@ -81,6 +81,38 @@ export function initTimelineEditor(cmEditor) {
     _loadTlOrder();
     setupDelegatedListeners();
     setupLoopButton();
+
+    // Meta bar: alias / mode / description
+    const metaAlias = document.getElementById('tl-meta-alias');
+    const metaMode  = document.getElementById('tl-meta-mode');
+    const metaDesc  = document.getElementById('tl-meta-desc');
+
+    if (metaAlias) {
+        metaAlias.addEventListener('change', () => {
+            const doc = getCurrentDoc();
+            if (!doc) return;
+            doc.alias = metaAlias.value || 'My Script';
+            pushTimelineToYaml();
+        });
+    }
+    if (metaMode) {
+        metaMode.addEventListener('change', () => {
+            const doc = getCurrentDoc();
+            if (!doc) return;
+            doc.mode = metaMode.value;
+            pushTimelineToYaml();
+        });
+    }
+    if (metaDesc) {
+        metaDesc.addEventListener('change', () => {
+            const doc = getCurrentDoc();
+            if (!doc) return;
+            const v = metaDesc.value.trim();
+            if (v) doc.description = v;
+            else delete doc.description;
+            pushTimelineToYaml();
+        });
+    }
 }
 
 export function syncYamlToTimeline(doc) {
@@ -90,6 +122,14 @@ export function syncYamlToTimeline(doc) {
     _totalMs = totalMs;
     renderTimeline(events, totalMs);
     _updateLoopBtnLabel();
+
+    // Populate meta bar
+    const metaAlias = document.getElementById('tl-meta-alias');
+    const metaMode  = document.getElementById('tl-meta-mode');
+    const metaDesc  = document.getElementById('tl-meta-desc');
+    if (metaAlias && document.activeElement !== metaAlias) metaAlias.value = doc.alias || '';
+    if (metaMode  && document.activeElement !== metaMode)  metaMode.value  = doc.mode  || 'single';
+    if (metaDesc  && document.activeElement !== metaDesc)  metaDesc.value  = doc.description || '';
 }
 
 export function startTimelineCursor() {
@@ -1823,10 +1863,11 @@ function pushTimelineToYaml() {
     const ordered = {};
     ordered.alias    = doc.alias    ?? 'My Script';
     ordered.mode     = doc.mode     ?? 'single';
+    if (doc.description) ordered.description = doc.description;
     if ('icon'      in doc) ordered.icon      = doc.icon;
     if ('variables' in doc) ordered.variables = doc.variables;
     Object.keys(doc).forEach(k => {
-        if (!['alias', 'mode', 'icon', 'variables', 'sequence'].includes(k)) ordered[k] = doc[k];
+        if (!['alias', 'mode', 'description', 'icon', 'variables', 'sequence'].includes(k)) ordered[k] = doc[k];
     });
     ordered.sequence = doc.sequence || [];
 

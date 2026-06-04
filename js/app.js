@@ -200,13 +200,6 @@ function init() {
     // 4. Set Runtime Variable Callback
     setVarUpdateCallback(updateRuntimeVariablesUI);
 
-    editor.on('change', () => {
-        updateColorPreviews(editor);
-        if (!isPlaying) {
-            validateAndSync();
-        }
-    });
-
     // Initial call
     updateColorPreviews(editor);
 
@@ -1133,9 +1126,10 @@ function validateAndSync() {
         if (doc) setCurrentDoc(doc);
         updateLampEntities(doc || {}, room);
 
-        // Sync Timeline if active
+        // Sync active editor view
         const _atSync = document.querySelector('#panel-editor .panel-tab.active');
         if (_atSync && _atSync.dataset.tab === 'timeline' && doc) syncYamlToTimeline(doc);
+        else if (_atSync && _atSync.dataset.tab === 'nodes') syncYamlToNodes();
 
         // Update Global Variable Panel with full discovery
         updateVariablePanel(doc);

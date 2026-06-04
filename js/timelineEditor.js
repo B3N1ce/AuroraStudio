@@ -1495,14 +1495,22 @@ function renameTrack(oldId, newId) {
 }
 
 export function renameEntityInSequence(seq, oldId, newId) {
+    const norm = id => (typeof id === 'string' && !id.includes('.')) ? 'light.' + id : id;
+    const matchAndReplace = (id) => (norm(id) === oldId ? newId : id);
+    const renameTarget = (container, key) => {
+        if (!container) return;
+        const val = container[key];
+        if (typeof val === 'string') {
+            if (norm(val) === oldId) container[key] = newId;
+        } else if (Array.isArray(val)) {
+            container[key] = val.map(matchAndReplace);
+        }
+    };
     seq.forEach(step => {
         const type = detectStepType(step);
         if (type === 'action') {
-            if (step.target?.entity_id === oldId) {
-                step.target.entity_id = newId;
-            } else if (Array.isArray(step.target?.entity_id)) {
-                step.target.entity_id = step.target.entity_id.map(id => id === oldId ? newId : id);
-            }
+            renameTarget(step.target, 'entity_id');
+            renameTarget(step.data, 'entity_id');
         } else if (type === 'parallel') {
             step.parallel.forEach(b => renameEntityInSequence(Array.isArray(b) ? b : (b.sequence || []), oldId, newId));
         } else if (type === 'repeat') {

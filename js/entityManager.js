@@ -940,10 +940,12 @@ function _showRenameModal(entityId) {
             }
         }
 
-        // Rename in top-level alias/entity fields (edge case)
-        if (doc.target?.entity_id === entityId) doc.target.entity_id = newId;
-        else if (Array.isArray(doc.target?.entity_id)) {
-            doc.target.entity_id = doc.target.entity_id.map(id => id === entityId ? newId : id);
+        // Rename in top-level target (edge case), normalize prefix before comparing
+        const _norm = id => (typeof id === 'string' && !id.includes('.')) ? 'light.' + id : id;
+        if (doc.target) {
+            const tid = doc.target.entity_id;
+            if (typeof tid === 'string' && _norm(tid) === entityId) doc.target.entity_id = newId;
+            else if (Array.isArray(tid)) doc.target.entity_id = tid.map(id => _norm(id) === entityId ? newId : id);
         }
 
         // Update groups in localStorage
@@ -1107,7 +1109,11 @@ function renderEntityBrowser(uniqueIds) {
 
         let isChildOf = [];
         Object.keys(groups).forEach(g => {
-            if (groups[g].includes(id)) isChildOf.push(g);
+            // Only count the group as a valid parent if the group entity itself
+            // is a current lamp (in uniqueIds). Stale localStorage groups that
+            // reference entities no longer in the YAML are ignored so that a
+            // child entity doesn't vanish from the inspector.
+            if (groups[g].includes(id) && uniqueIds.includes(g)) isChildOf.push(g);
         });
 
         if (isChildOf.length > 0) {

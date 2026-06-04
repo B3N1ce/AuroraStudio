@@ -202,6 +202,7 @@ function init() {
         setEditorValue: (v) => { editor.setValue(v); localStorage.setItem('ha_animation_script', v); },
         validateAndSync,
         isPlaying: () => isPlaying,
+        resetSim: () => { resetLamps(); resetTimelineState(); resetRuntimeVariablesUI(); },
     });
 
     // 4. Set Runtime Variable Callback

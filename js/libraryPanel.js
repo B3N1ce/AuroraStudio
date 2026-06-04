@@ -324,6 +324,7 @@ function loadSlot(slot) {
         onConfirm: () => {
             _deps.setEditorValue(slot.yaml);
             _deps.validateAndSync();
+            _deps.resetSim?.();
             _activeSlotId = slot.id;
             renderLibrary();
         }
@@ -339,6 +340,7 @@ function loadEmpty() {
         onConfirm: () => {
             _deps.setEditorValue(SCRATCH_YAML);
             _deps.validateAndSync();
+            _deps.resetSim?.();
             _activeSlotId = null;
             renderLibrary();
         }

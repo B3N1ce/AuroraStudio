@@ -324,6 +324,7 @@ function setupDelegatedListeners() {
 
     // ── Mousedown handler (handles + Ctrl+drag copy) ───────────────────────
     container.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
         if (document.body.classList.contains('simulation-running')) return;
 
         const isLeftHandle  = e.target.classList.contains('tl-block-handle-left');

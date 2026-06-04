@@ -163,10 +163,11 @@ function sToL(c) {
 // sRGB byte [0-255] → linear float with optional colour-curve pre-processing
 function applyLampCurve(c, curve) {
     const n = c / 255;
+    if (curve === 'linear')  return n;                                                    // true linear: c/255, no decode
     if (curve === 'gamma22') return Math.pow(n, 2.2);
     if (curve === 'gamma28') return Math.pow(n, 2.8);
     if (curve === 'cie')     return n <= 0.08 ? (n * 100 / 903.3) : Math.pow((n + 0.16) / 1.16, 3);
-    return n <= 0.04045 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4); // 'linear' = sRGB decode
+    return n <= 0.04045 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4);                // 'srgb' = proper sRGB decode
 }
 
 const BLEND_MAP = { 'multiply-glow': 0, 'multiply': 1, 'overlay': 2, 'color-dodge': 3 };

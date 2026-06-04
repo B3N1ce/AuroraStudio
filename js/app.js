@@ -26,10 +26,11 @@ const btnColorCurve = document.getElementById('btn-color-curve');
 const btnCopyCode = document.getElementById('btn-copy-code');
 
 const COLOR_CURVE_ICONS = {
-    linear: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="12" x2="12" y2="2"/></svg>`,
-    gamma22: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12 C5 12 9 2 12 2"/></svg>`,
+    linear:  `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="12" x2="12" y2="2"/></svg>`,
+    srgb:    `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12 C5 12 9 2 12 2"/></svg>`,
+    gamma22: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12 C4 11 7 3 12 2"/></svg>`,
     gamma28: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12 C2 10 3 2 12 2"/></svg>`,
-    cie: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 7 C3 3 11 3 13 7 C11 11 3 11 1 7 Z"/><circle cx="7" cy="7" r="2"/></svg>`,
+    cie:     `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 7 C3 3 11 3 13 7 C11 11 3 11 1 7 Z"/><circle cx="7" cy="7" r="2"/></svg>`,
 };
 const BLEND_MODE_ICONS = {
     'multiply-glow': `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="2.5"/><line x1="7" y1="1" x2="7" y2="3.5"/><line x1="7" y1="10.5" x2="7" y2="13"/><line x1="1" y1="7" x2="3.5" y2="7"/><line x1="10.5" y1="7" x2="13" y2="7"/><line x1="3" y1="3" x2="4.2" y2="4.2"/><line x1="9.8" y1="9.8" x2="11" y2="11"/><line x1="11" y1="3" x2="9.8" y2="4.2"/><line x1="4.2" y1="9.8" x2="3" y2="11"/></svg>`,
@@ -39,7 +40,7 @@ const BLEND_MODE_ICONS = {
 };
 
 function setColorCurveUI(val) {
-    if (btnColorCurve) btnColorCurve.innerHTML = COLOR_CURVE_ICONS[val] || COLOR_CURVE_ICONS.linear;
+    if (btnColorCurve) btnColorCurve.innerHTML = COLOR_CURVE_ICONS[val] || COLOR_CURVE_ICONS.srgb;
     document.querySelectorAll('#color-curve-menu .dropdown-item').forEach(item => {
         item.classList.toggle('active', item.dataset.value === val);
     });
@@ -161,7 +162,13 @@ function init() {
     // 1.2 Persistenz: Layout laden (Bereits oben initialisiert)
 
     // 1.3 Persistenz: Farbraum laden
-    const savedCurve = localStorage.getItem('ha_simulator_color_curve') || 'linear';
+    // Migration: old 'linear' was sRGB decode, now renamed to 'srgb'
+    let savedCurve = localStorage.getItem('ha_simulator_color_curve') || 'srgb';
+    if (savedCurve === 'linear' && !localStorage.getItem('ha_simulator_curve_migrated')) {
+        savedCurve = 'srgb';
+        localStorage.setItem('ha_simulator_color_curve', 'srgb');
+        localStorage.setItem('ha_simulator_curve_migrated', '1');
+    }
     setColorCurve(savedCurve);
     setColorCurveUI(savedCurve);
 

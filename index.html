@@ -249,15 +249,19 @@
                         <div id="color-curve-menu" class="dropdown-menu">
                             <div class="dropdown-item mode-item" data-value="linear">
                                 <svg class="mode-item-icon" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="12" x2="12" y2="2"/></svg>
-                                <div><span class="item-title">Linear (Raw)</span><span class="item-desc">Keine Gammakorrektur</span></div>
+                                <div><span class="item-title">Linear (c/255)</span><span class="item-desc">Keine Dekodierung, helle Mitten</span></div>
+                            </div>
+                            <div class="dropdown-item mode-item" data-value="srgb">
+                                <svg class="mode-item-icon" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12 C5 12 9 2 12 2"/></svg>
+                                <div><span class="item-title">sRGB</span><span class="item-desc">Physikalisch korrekt (IEC 61966)</span></div>
                             </div>
                             <div class="dropdown-item mode-item" data-value="gamma22">
-                                <svg class="mode-item-icon" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12 C5 12 9 2 12 2"/></svg>
-                                <div><span class="item-title">Gamma 2.2</span><span class="item-desc">Standard sRGB</span></div>
+                                <svg class="mode-item-icon" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12 C4 11 7 3 12 2"/></svg>
+                                <div><span class="item-title">Gamma 2.2</span><span class="item-desc">Einfache Potenzfunktion</span></div>
                             </div>
                             <div class="dropdown-item mode-item" data-value="gamma28">
                                 <svg class="mode-item-icon" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12 C2 10 3 2 12 2"/></svg>
-                                <div><span class="item-title">Gamma 2.8</span><span class="item-desc">Stärker komprimiert</span></div>
+                                <div><span class="item-title">Gamma 2.8</span><span class="item-desc">Dunklere Mitten, höherer Kontrast</span></div>
                             </div>
                             <div class="dropdown-item mode-item" data-value="cie">
                                 <svg class="mode-item-icon" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 7 C3 3 11 3 13 7 C11 11 3 11 1 7 Z"/><circle cx="7" cy="7" r="2"/></svg>

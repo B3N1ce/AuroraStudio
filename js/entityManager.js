@@ -8,7 +8,7 @@ import { openColorPicker, rgbToHex } from './colorPicker.js';
 const lamps = new Map();
 const otherEntities = {};
 let selectedEntityCallback = null;
-let currentColorCurve = 'linear';
+let currentColorCurve = 'srgb';
 
 // Groups, Visibility & Positions Storage
 let groups        = JSON.parse(localStorage.getItem('ha_simulator_groups'))        || {};

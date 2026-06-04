@@ -1837,7 +1837,7 @@ document.addEventListener('mousemove', (e) => {
     
     // Check if we are hovering the field itself (which should be enabled)
     // or an input inside it
-    if (target && (target.classList.contains('node-field') || target.classList.contains('node-field-smart'))) {
+    if (target && target.classList && (target.classList.contains('node-field') || target.classList.contains('node-field-smart'))) {
         target = target.querySelector('input, textarea');
     }
 

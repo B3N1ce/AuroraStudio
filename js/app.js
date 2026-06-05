@@ -150,7 +150,18 @@ function init() {
         lineNumbers: true,
         gutters: ["CodeMirror-linenumbers", "breakpoints"],
         tabSize: 2,
-        extraKeys: { "Tab": function (cm) { cm.replaceSelection("  ", "end"); } }
+        extraKeys: {
+            "Tab": function (cm) {
+                if (cm.somethingSelected()) {
+                    cm.indentSelection("add");
+                } else {
+                    cm.replaceSelection("  ", "end");
+                }
+            },
+            "Shift-Tab": function (cm) {
+                cm.indentSelection("subtract");
+            }
+        }
     });
 
     // 1.1 Persistenz: Gespeichertes Skript laden
